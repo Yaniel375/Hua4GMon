@@ -32,6 +32,7 @@ def app():
     for m, n, v in patches:
         setattr(m, n, v)
     import android_main
+    core.set_language("ru")
     a = android_main.Hua4GMonApp()
     a._run_prepare()
     a.confirm = lambda title, msg, yes, on_yes: on_yes()   # «Да» в диалогах
@@ -446,7 +447,7 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
 
 
 @pytest.mark.parametrize('size', [(140, 100), (165, 140), (280, 120)])
-@pytest.mark.parametrize('language', ['ru', 'en'])
+@pytest.mark.parametrize('language', ['ru', 'en', 'es'])
 def test_metric_captions_fit_small_cards(app, size, language):
     from kivy.factory import Factory
     core.set_language(language)

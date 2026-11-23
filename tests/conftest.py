@@ -16,5 +16,6 @@ import core  # noqa: E402
 def _russian_interface():
     """Каждый тест заканчивается русским интерфейсом, даже если упал
     посреди проверки английского."""
+    core.set_language("ru")
     yield
     core.set_language("ru")

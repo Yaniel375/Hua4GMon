@@ -40,7 +40,7 @@ Band Lock, переводы) — в общем пакете `core/`, одина�
 > mobile-data reattach and a demo mode without a router. Portable Windows
 > `.exe` and Android APK are on the
 > [Releases](https://github.com/Sp0Xik/Hua4GMon/releases) page; the
-> interface is available in Russian and English.
+> interface is available in Spanish (default), Russian and English.
 
 ## 🎯 Как пользоваться
 
@@ -180,7 +180,7 @@ Band Lock, переводы) — в общем пакете `core/`, одина�
   без них диагностика бесполезна; по ним можно определить район вышки.
 - Проверка режима **«белых списков»** оператора (РФ): TLS-рукопожатие с
   SNI, различает блокировку по IP и по имени сайта.
-- Два языка: русский и английский.
+- Три языка: испанский (по умолчанию), русский и английский.
 
 </td>
 </tr>

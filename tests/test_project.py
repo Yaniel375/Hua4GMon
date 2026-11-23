@@ -7,7 +7,7 @@ import re
 import pytest
 
 import core
-from core.i18n import EN
+from core.i18n import EN, ES
 from tools import i18n_keys, make_version_info
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -34,6 +34,10 @@ def test_no_dead_translations():
     assert not unused, f"Переводы без использования (удалите): {unused[:10]}"
 
 
+def test_es_matches_en_keys():
+    assert set(ES) == set(EN), sorted(set(ES) ^ set(EN))[:10]
+
+
 def test_android_text_fits_bundled_font():
     """Каждый символ, который может показать Android-версия, есть в её шрифте.
 
@@ -50,7 +54,7 @@ def test_android_text_fits_bundled_font():
         if path.name != "i18n.py":      # EN-словарь содержит и Windows-подписи
             shown |= i18n_keys.string_constants(path)
     shown |= i18n_keys.core_indirect()
-    shown |= {EN[k] for k in shown if k in EN}
+    shown |= {d[k] for d in (EN, ES) for k in shown if k in d}
     bad = {}
     for text in shown:
         missing = sorted({ch for ch in text if ord(ch) not in cmap and ch not in "\n\r\t"})
@@ -65,8 +69,9 @@ PLACEHOLDER = re.compile(r"\{([a-z_]*)(?::[^}]*)?\}")
 
 def test_translation_placeholders_match():
     """{pct}, {bands} и т.п. должны совпадать — иначе .format() упадёт."""
-    for ru, en in EN.items():
-        assert set(PLACEHOLDER.findall(ru)) == set(PLACEHOLDER.findall(en)), ru
+    for table in (EN, ES):
+        for ru, tr in table.items():
+            assert set(PLACEHOLDER.findall(ru)) == set(PLACEHOLDER.findall(tr)), ru
 
 
 # =========================================================
