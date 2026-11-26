@@ -704,10 +704,6 @@ EN: dict[str, str] = {
         "↩ As before",
     "⏏ Отключиться":
         "⏏ Disconnect",
-    "☀ Солнце: вкл":
-        "☀ Sun mode: on",
-    "☀ Солнце: выкл":
-        "☀ Sun mode: off",
     "☰ Меню":
         "☰ Menu",
     ("⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе "
@@ -826,7 +822,6 @@ EN.update({
     'Тёмная': 'Dark',
     'Светлая': 'Light',
     'По умолчанию': 'Default',
-    'Солнце': 'Sun',
     'Язык': 'Language',
     'Звук включён': 'Sound on',
     'Звук выключен': 'Sound off',
@@ -1113,8 +1108,6 @@ ES: dict[str, str] = {
     '← Назад': '← Atrás',
     '↩ Как было': '↩ Como estaba',
     '⏏ Отключиться': '⏏ Desconectar',
-    '☀ Солнце: вкл': '☀ Modo sol: sí',
-    '☀ Солнце: выкл': '☀ Modo sol: no',
     '☰ Меню': '☰ Menú',
     '⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе тест измерит чужой канал. Применимо только для РФ.': '⚠ El teléfono debe estar conectado a la Wi-Fi de este mismo router — si no, la prueba medirá otro enlace. Solo aplicable en Rusia.',
     '⟲ Пики': '⟲ Picos',
@@ -1215,7 +1208,6 @@ ES: dict[str, str] = {
     'Тёмная': 'Oscuro',
     'Светлая': 'Claro',
     'По умолчанию': 'Predeterminado',
-    'Солнце': 'Sol',
     'Язык': 'Idioma',
     'Звук включён': 'Sonido activado',
     'Звук выключен': 'Sonido desactivado',
