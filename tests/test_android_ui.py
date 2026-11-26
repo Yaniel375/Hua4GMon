@@ -793,6 +793,7 @@ def test_cell_detail_popup(app):
     from kivy.core.window import Window
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
+
     from core.scanner import Observation
     snap = core.Snapshot(registration='registered', rat='3g', cell_id=328771,
                          rssi=-113, connection=901, data_enabled=True)
@@ -836,7 +837,6 @@ def _settings_row_by_title(rows, title):
 def test_settings_screen(app):
     from kivy.core.window import Window
     from kivy.uix.label import Label
-    from kivy.uix.popup import Popup
     from kivy.uix.switch import Switch
     app.go('settings')
     pump(lambda: False, 0.3)
@@ -895,6 +895,7 @@ def test_settings_screen(app):
 def test_settings_language_picker(app):
     from kivy.core.window import Window
     from kivy.uix.popup import Popup
+
     import core
     app.go('settings')
     pump(lambda: False, 0.3)

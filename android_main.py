@@ -100,37 +100,28 @@ from core import (
     Snapshot,
     __version__,
     advice,
+    band_chip,
     build_diagnostics,
     calculate_overall_health,
+    carrier_lines,
     configure_library_logging,
     current_language,
     demo_angle_hint,
     demo_factory,
+    detail_log,
     diagnostics_json,
     discover_router,
     evaluate_signal,
-    band_chip,
-    carrier_lines,
-    detail_log,
-    format_duration,
-    format_log_datetime,
+    format_bytes_mb,
     format_log_identity,
     format_log_time,
-    format_neighbour,
-    format_observation,
-    format_plmn,
-    good_threshold,
-    net_rows,
-    net_rows_3g,
-    rat_line,
-    serving_cell_rows,
-    signal_bars,
-    trend_arrow,
-    format_bytes_mb,
     format_mimo,
     format_modulation,
+    format_observation,
+    format_plmn,
     format_rank,
     format_rate_mbps,
+    good_threshold,
     humanize_error,
     is_valid_ip,
     library_version,
@@ -138,11 +129,16 @@ from core import (
     lockable_bands,
     lte_band_label,
     mimo_status,
+    net_rows,
+    net_rows_3g,
     parse_antenna_value,
+    rat_line,
     readable_on,
     run_whitelist_check,
     set_language,
+    signal_bars,
     t,
+    trend_arrow,
     uplink_status,
 )
 from core.graph import GestureViewport, GraphViewport, comparison_param, radio_label
@@ -3136,10 +3132,7 @@ class Hua4GMonApp(App):
                             spacing=dp(12), padding=dp(4))
         ci = snap.cell_id if snap.cell_id is not None else snap.nci
         is_3g = snap.rat == '3g'
-        if is_3g and ci is not None:
-            rnc_cid = f"{ci >> 16}:{ci & 0xffff}"
-        else:
-            rnc_cid = d['enb_cid']
+        rnc_cid = f"{ci >> 16}:{ci & 65535}" if is_3g and ci is not None else d['enb_cid']
         pci = d['pci'] if d['pci'] is not None else '-'
         content.add_widget(self._detail_section(
             t('Идентичность').upper(), [
@@ -3329,6 +3322,7 @@ class Hua4GMonApp(App):
                 size_hint_y=None, height=dp(48)))
             return
         from kivy.uix.button import Button
+
         from core.constants import LTE_BAND_TABLE
         for bands in self._recent_locks:
             freqs = []

@@ -30,7 +30,6 @@ from core.netmonster import (
     trend_arrow,
 )
 from core.scanner import Observation, Survey
-from core.scanner import Survey
 from core.state import CellStats
 
 EXPLANATIONS = (
@@ -52,12 +51,12 @@ def _ru():
 
 
 def _serving(**kw):
-    base = dict(registration='registered', connection=901, data_enabled=True,
-                plmn='25002', operator='MegaFon', rat='lte_ca',
-                bands=(3, 7), band_label='B3+B7', earfcn_raw='1300',
-                earfcn=1300, freq_mhz=1815.0, pci=114, cell_id=123456,
-                enodeb=482, sector=0, tac='12345', dl_bandwidth='20MHz',
-                ca=True)
+    base = {'registration': 'registered', 'connection': 901, 'data_enabled': True,
+                'plmn': '25002', 'operator': 'MegaFon', 'rat': 'lte_ca',
+                'bands': (3, 7), 'band_label': 'B3+B7', 'earfcn_raw': '1300',
+                'earfcn': 1300, 'freq_mhz': 1815.0, 'pci': 114, 'cell_id': 123456,
+                'enodeb': 482, 'sector': 0, 'tac': '12345', 'dl_bandwidth': '20MHz',
+                'ca': True}
     base.update(kw)
     return Snapshot(**base)
 
@@ -142,8 +141,8 @@ def test_neighbour_ranking_and_format():
     assert ranked[0].median('sinr') == 18
     lines = format_observation(ranked[0])
     assert 'Cell ID 222' in lines[0] and 'PCI 2' in lines[0]
-    assert any(l.startswith('SINR med 18') for l in lines)
-    assert any('Источник:' in l and 'измерений: 1' in l for l in lines)
+    assert any(line.startswith('SINR med 18') for line in lines)
+    assert any('Источник:' in line and 'измерений: 1' in line for line in lines)
 
 
 def test_format_neighbour_marks_current_cell():
@@ -234,10 +233,10 @@ def test_good_threshold():
 
 
 def _obs_lte():
-    base = dict(registration='registered', rat='lte', cell_id=123456,
-                enodeb=482, sector=0, tac='12345', pci=114, earfcn=1300,
-                bands=(3,), band_label='B3', operator='CUBACEL CU',
-                plmn='36801', connection=901, data_enabled=True)
+    base = {'registration': 'registered', 'rat': 'lte', 'cell_id': 123456,
+                'enodeb': 482, 'sector': 0, 'tac': '12345', 'pci': 114, 'earfcn': 1300,
+                'bands': (3,), 'band_label': 'B3', 'operator': 'CUBACEL CU',
+                'plmn': '36801', 'connection': 901, 'data_enabled': True}
     first = Snapshot(**base, rsrp=-100, sinr=5, rsrq=-12, rssi=-80)
     obs = Observation(first, 'device/signal',
                       '2026-11-26T01:00:00', '2026-11-26T01:00:00')
@@ -297,10 +296,10 @@ def test_detail_log_3g_2g_and_durations():
 def test_band_log_csv():
     survey = Survey()
     survey.running = True
-    base = dict(registration='registered', rat='lte', cell_id=123456,
-                enodeb=482, sector=0, tac='12345', pci=114, earfcn=1300,
-                bands=(3,), band_label='B3', operator='CUBACEL CU',
-                plmn='36801', connection=901, data_enabled=True)
+    base = {'registration': 'registered', 'rat': 'lte', 'cell_id': 123456,
+                'enodeb': 482, 'sector': 0, 'tac': '12345', 'pci': 114, 'earfcn': 1300,
+                'bands': (3,), 'band_label': 'B3', 'operator': 'CUBACEL CU',
+                'plmn': '36801', 'connection': 901, 'data_enabled': True}
     for rsrp, sinr in ((-100, 5), (-90, 10), (-80, 15)):
         survey.observe(Snapshot(**base, rsrp=rsrp, sinr=sinr,
                                 rsrq=-10, rssi=-70))
