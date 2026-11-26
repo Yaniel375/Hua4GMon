@@ -61,7 +61,29 @@ ES/EN/RU (366 claves, mismos conjuntos en los tres idiomas).
 - **Notificaciones**: activa/desactiva los avisos sonoros (el único
   canal de alertas de la app; no hay notificación persistente de
   Android — haría falta un servicio en primer plano).
-- **Tema**: cambia Oscuro ↔ Sol (el tema Sol ya existía en el menú).
+- **Tema**: abre el selector de tema (Predeterminado / Oscuro) y lo
+  aplica a toda la app al momento. Predeterminado es el verde de
+  NetMonster (fondo verde oscuro a negro, el tema con el que arranca
+  la app); Oscuro es negro cristalino (fondo negro puro, tarjetas
+  negro brillante, acento verde). El acento de los dos temas es el
+  verde NetMonster (antes el Predeterminado usaba el azul original de
+  la app, así que los botones principales ahora son verdes en los dos
+  temas). El selector solo se abre desde la fila «Tema» de Ajustes: el
+  Menú ya no lleva botón de tema y En Vivo no lleva botones de tema.
+  La paleta blanca «Sol» sigue definida en el código para el contraste
+  a pleno sol, pero ya no se ofrece en el selector.
+- **El tema cambia la app completa**: fondos, tarjetas, textos,
+  botones, interruptores, gráficos, barra inferior (botón activo),
+  chip de banda, líneas y separadores verdes, tarjetas de iconos de
+  Ajustes y separadores de los menús emergentes siguen el tema
+  (`app.c_bg`, `c_card`, `c_text`, `c_sub`, `c_accent`, `c_button2`,
+  `c_grid`, `c_graph_bg`). Al cambiar de tema, Ajustes se reconstruye
+  al momento (antes sus tarjetas y textos quedaban con el tema
+  anterior hasta volver a entrar). Comprobado con el test
+  `test_themes_change_whole_app`: para cada tema verifica los colores
+  de la app, el fondo de la ventana, la barra inferior, la cabecera y
+  las tarjetas de Ajustes, el chip y el fondo de Gráficos, y la
+  tarjeta y el separador del Menú.
 - **Idioma**: abre el selector (Español / English / Русский) y aplica
   el idioma a toda la app al momento.
 - Se abre desde el Menú (nueva opción Ajustes). No tiene barra
@@ -69,8 +91,9 @@ ES/EN/RU (366 claves, mismos conjuntos en los tres idiomas).
 
 ### Menú y navegación inferior
 - El Menú original se conserva completo (Información, Gráficos, Mapa,
-  Celdas, Escáner, Red, Sol, Desconectar) más la opción Ajustes, solo
-  con el estilo NetMonster (tarjeta oscura, separador verde).
+  Celdas, Escáner, Red, Ajustes, Desconectar) solo con el estilo
+  NetMonster (tarjeta oscura, separador verde). Los temas no están en
+  el Menú: solo se eligen desde la fila «Tema» de Ajustes.
 - Barra inferior fija tipo píldora (Gráficos, Mapa, En vivo, Registro,
   Menú), siempre visible abajo, con el botón activo en verde oscuro.
   El botón Gráficos lleva su icono en cuadrado redondeado con ↗.

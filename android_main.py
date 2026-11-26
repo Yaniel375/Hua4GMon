@@ -168,20 +168,32 @@ _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 
 THEMES: dict[str, dict[str, list[float]]] = {
     'dark': {
-        # NetMonster-style dark green-black (see the CUBACEL screenshot).
-        'c_bg': [0.04, 0.08, 0.06, 1], 'c_card': [0.09, 0.13, 0.10, 1],
-        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
-        'c_accent': [0.04, 0.47, 0.84, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
-        'c_graph_bg': [0.06, 0.10, 0.08, 1], 'c_grid': [0.16, 0.20, 0.17, 1],
+        # Oscuro: negro oscuro cristalino — fondo negro puro, tarjetas
+        # negro brillante, acento verde NetMonster.
+        'c_bg': [0.0, 0.0, 0.0, 1], 'c_card': [0.08, 0.08, 0.09, 1],
+        'c_text': [0.95, 0.96, 0.97, 1], 'c_sub': [0.65, 0.68, 0.72, 1],
+        'c_accent': [0.0, 0.72, 0.58, 1], 'c_button2': [0.16, 0.18, 0.2, 1],
+        'c_graph_bg': [0.02, 0.02, 0.02, 1], 'c_grid': [0.15, 0.15, 0.16, 1],
     },
-    # «Солнце»: максимальный контраст для экрана под прямым солнцем.
+    # «Солнце»: máximo contraste, estilo blanco para pantalla a pleno sol.
     'sun': {
         'c_bg': [1, 1, 1, 1], 'c_card': [0.92, 0.93, 0.94, 1],
         'c_text': [0, 0, 0, 1], 'c_sub': [0.2, 0.2, 0.2, 1],
         'c_accent': [0.0, 0.3, 0.7, 1], 'c_button2': [0.8, 0.82, 0.85, 1],
         'c_graph_bg': [1, 1, 1, 1], 'c_grid': [0.8, 0.8, 0.8, 1],
     },
+    # Predeterminado: el verde de NetMonster (fondo verde oscuro a negro).
+    'default': {
+        'c_bg': [0.04, 0.08, 0.06, 1], 'c_card': [0.09, 0.13, 0.10, 1],
+        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
+        'c_accent': [0.0, 0.72, 0.58, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
+        'c_graph_bg': [0.06, 0.10, 0.08, 1], 'c_grid': [0.16, 0.20, 0.17, 1],
+    },
 }
+
+
+# Tema que trae la app por defecto (el verde de NetMonster).
+DEFAULT_THEME = 'default'
 
 
 def unit_of(param: str) -> str:
@@ -378,7 +390,7 @@ class SignalGraph(Widget):
     def _redraw(self) -> None:
         from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
         app = App.get_running_app()
-        theme = THEMES[app.theme_name] if app else THEMES['dark']
+        theme = THEMES[app.theme_name] if app else THEMES[DEFAULT_THEME]
         text_col = tuple(theme['c_sub'])
         self.canvas.clear()
         w, h = self.width, self.height
@@ -422,7 +434,7 @@ class SignalGraph(Widget):
 
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                Color(0.0, 0.72, 0.58, 1)
+                Color(*theme['c_accent'])
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
             # NetMonster-style dashed "good" threshold line.
@@ -866,7 +878,7 @@ KV = """
         size_hint_x: 0.5
         canvas.before:
             Color:
-                rgba: 0, 0.72, 0.58, 1
+                rgba: app.c_accent
             RoundedRectangle:
                 pos: self.pos
                 size: self.size
@@ -908,7 +920,7 @@ KV = """
     padding: dp(2), dp(4)
     canvas.before:
         Color:
-            rgba: (0.08, 0.33, 0.18, 1) if root.active else (0, 0, 0, 0)
+            rgba: (app.c_accent[0] * 0.45, app.c_accent[1] * 0.45, app.c_accent[2] * 0.45, 1) if root.active else (0, 0, 0, 0)
         RoundedRectangle:
             pos: self.x + dp(3), self.y + dp(5)
             size: self.width - dp(6), self.height - dp(10)
@@ -1169,7 +1181,7 @@ ScreenManager:
                         size_hint_x: 0.45
                         canvas.before:
                             Color:
-                                rgba: 0, 0.72, 0.58, 1
+                                rgba: app.c_accent
                             RoundedRectangle:
                                 pos: self.pos
                                 size: self.size
@@ -1395,7 +1407,7 @@ ScreenManager:
                         size_hint_x: 0.45
                         canvas.before:
                             Color:
-                                rgba: 0, 0.72, 0.58, 1
+                                rgba: app.c_accent
                             RoundedRectangle:
                                 pos: self.pos
                                 size: self.size
@@ -1416,7 +1428,7 @@ ScreenManager:
                         spacing: dp(8)
                         ChipLabel:
                             id: charts_chip
-                            chip_color: 0, 0.72, 0.58, 1
+                            chip_color: app.c_accent
                 GridLayout:
                     cols: 2
                     spacing: dp(10)
@@ -1719,7 +1731,7 @@ ScreenManager:
             size_hint_x: 0.25
             canvas.before:
                 Color:
-                    rgba: 0, 0.72, 0.58, 1
+                    rgba: app.c_accent
                 RoundedRectangle:
                     pos: self.pos
                     size: self.size
@@ -1834,7 +1846,7 @@ ScreenManager:
                     text: root.lbl_prefs
                     font_size: sp(16)
                     bold: True
-                    color: 0, 0.72, 0.58, 1
+                    color: app.c_accent
                     halign: 'left'
                     valign: 'middle'
                     text_size: self.size
@@ -2244,8 +2256,10 @@ class BellIcon(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         from kivy.graphics import Color, Ellipse, Line
+        app = App.get_running_app()
+        accent = tuple(app.c_accent) if app else (0, 0.72, 0.58, 1)
         with self.canvas:
-            Color(0, 0.72, 0.58, 1)
+            Color(*accent)
             self._dome = Ellipse(angle_start=0, angle_end=180)
             self._flare = Line(width=dp(2))
             self._clapper = Ellipse()
@@ -2356,14 +2370,14 @@ class ToolsScreen(TopScrollScreen):
 # =========================================================
 
 class Hua4GMonApp(App):
-    theme_name = StringProperty('dark')
-    c_bg = ListProperty(THEMES['dark']['c_bg'])
-    c_card = ListProperty(THEMES['dark']['c_card'])
-    c_text = ListProperty(THEMES['dark']['c_text'])
-    c_sub = ListProperty(THEMES['dark']['c_sub'])
-    c_accent = ListProperty(THEMES['dark']['c_accent'])
-    c_button2 = ListProperty(THEMES['dark']['c_button2'])
-    c_grid = ListProperty(THEMES['dark']['c_grid'])
+    theme_name = StringProperty(DEFAULT_THEME)
+    c_bg = ListProperty(THEMES[DEFAULT_THEME]['c_bg'])
+    c_card = ListProperty(THEMES[DEFAULT_THEME]['c_card'])
+    c_text = ListProperty(THEMES[DEFAULT_THEME]['c_text'])
+    c_sub = ListProperty(THEMES[DEFAULT_THEME]['c_sub'])
+    c_accent = ListProperty(THEMES[DEFAULT_THEME]['c_accent'])
+    c_button2 = ListProperty(THEMES[DEFAULT_THEME]['c_button2'])
+    c_grid = ListProperty(THEMES[DEFAULT_THEME]['c_grid'])
     sound_on = BooleanProperty(False)
     background_monitoring = BooleanProperty(True)
     lbl_back = StringProperty("")
@@ -2453,6 +2467,9 @@ class Hua4GMonApp(App):
         self._bands_shown = []          # подписи бэндов — заново, в цвете темы
         self.build_band_checkboxes()
         self.refresh_nav_highlight()
+        # Ajustes se reconstruye (iconos, textos y fila Tema) para que
+        # el cambio de tema se vea también en la pantalla donde se elige.
+        self.refresh_settings_screen()
         if self.state.last is not None:
             self._render(self.state.last)
         else:
@@ -2481,7 +2498,7 @@ class Hua4GMonApp(App):
         self.refresh_nav_highlight()
 
     def refresh_nav_highlight(self) -> None:
-        """Active tab in the bottom pill gets the dark-green background."""
+        """Active tab in the bottom pill gets the theme accent background."""
         if getattr(self, 'sm', None) is None:
             return
         current = self.sm.current
@@ -3088,7 +3105,7 @@ class Hua4GMonApp(App):
                         spacing=dp(4))
         box.height = dp(30) + len(rows) * dp(52)
         box.add_widget(Label(text=title, font_size=sp(16), bold=True,
-                             color=(0, 0.72, 0.58, 1), halign='left',
+                             color=self.c_accent, halign='left',
                              valign='middle', text_size=(0, 0),
                              size_hint_y=None, height=dp(30)))
         for label, value in rows:
@@ -3125,7 +3142,7 @@ class Hua4GMonApp(App):
         popup = Popup(title=d['identity'], content=box,
                       size_hint=(0.92, None), height=dp(560), background='',
                       title_color=(1, 1, 1, 1),
-                      separator_color=(0, 0.72, 0.58, 1),
+                      separator_color=self.c_accent,
                       separator_height=dp(3))
         scroll = ScrollView(bar_width=dp(8), scroll_type=['bars', 'content'])
         content = BoxLayout(orientation='vertical', size_hint_y=None,
@@ -3520,9 +3537,45 @@ class Hua4GMonApp(App):
             self.refresh_all_texts()
             self.refresh_settings_screen()
 
-    def cycle_theme(self) -> None:
-        self.apply_theme('dark' if self.theme_name == 'sun' else 'sun')
-        self.refresh_settings_screen()
+    def theme_label(self) -> str:
+        """Nombre del tema actual: Oscuro, Claro o Predeterminado."""
+        return {'dark': t('Тёмная'), 'sun': t('Светлая'),
+                'default': t('По умолчанию')}[self.theme_name]
+
+    def open_theme_picker(self) -> None:
+        """Selector de tema: Predeterminado (verde NetMonster) u Oscuro
+        (negro cristalino).
+
+        Igual que el selector de idioma: tarjeta verde oscuro, título
+        blanco y separador verde; la opción activa lleva ✓.
+        """
+        from kivy.graphics import Color, RoundedRectangle
+        from kivy.uix.boxlayout import BoxLayout
+        box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+        with box.canvas.before:
+            Color(*self.c_card)
+            rect = RoundedRectangle(pos=box.pos, size=box.size,
+                                    radius=[dp(16)])
+        box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
+                 size=lambda *_: setattr(rect, 'size', box.size))
+        popup = Popup(title=t("Тема"), content=box, size_hint=(0.85, None),
+                      height=dp(210), background='',
+                      title_color=(1, 1, 1, 1),
+                      separator_color=self.c_accent,
+                      separator_height=dp(3))
+        options = [
+            (t('По умолчанию'), DEFAULT_THEME),
+            (t('Тёмная'), 'dark'),
+        ]
+        for label, name in options:
+            text = ('✓ ' + label if name == self.theme_name else label)
+            btn = Factory.FlatButton(text=text, font_size=sp(17),
+                                     size_hint_y=None, height=dp(56))
+            btn.bind(on_release=lambda _b, n=name: (
+                popup.dismiss(), self.apply_theme(n),
+                self.refresh_settings_screen()))
+            box.add_widget(btn)
+        popup.open()
 
     def open_language_picker(self) -> None:
         from kivy.graphics import Color, RoundedRectangle
@@ -3537,7 +3590,7 @@ class Hua4GMonApp(App):
         popup = Popup(title=t("Язык"), content=box, size_hint=(0.85, None),
                       height=dp(260), background='',
                       title_color=(1, 1, 1, 1),
-                      separator_color=(0, 0.72, 0.58, 1),
+                      separator_color=self.c_accent,
                       separator_height=dp(3))
         for name in LANGUAGES.values():
             btn = Factory.FlatButton(text=name, font_size=sp(17),
@@ -3568,7 +3621,7 @@ class Hua4GMonApp(App):
         tile = AnchorLayout(size_hint=(None, None), size=(dp(56), dp(56)),
                             anchor_x='center', anchor_y='center')
         with tile.canvas.before:
-            Color(0.07, 0.15, 0.10, 1)
+            Color(*self.c_button2)
             rect = RoundedRectangle(pos=tile.pos, size=tile.size,
                                     radius=[dp(14)])
         tile.bind(pos=lambda *_: setattr(rect, 'pos', tile.pos),
@@ -3578,7 +3631,7 @@ class Hua4GMonApp(App):
                                              size=(dp(34), dp(34))))
         else:
             tile.add_widget(Label(text=icon, font_size=sp(26),
-                                  color=(0, 0.72, 0.58, 1), halign='center',
+                                  color=self.c_accent, halign='center',
                                   valign='middle', text_size=(0, 0),
                                   size_hint=(None, None), size=(dp(34), dp(34))))
         return tile
@@ -3649,11 +3702,9 @@ class Hua4GMonApp(App):
             None, t('Уведомления'),
             t('Постоянное уведомление и неизвестные соты'),
             None, self.toggle_notifications_sound))
-        theme_name = (t('Солнце') if self.theme_name == 'sun'
-                      else t('Тёмная'))
         rows_box.add_widget(self._settings_row(
-            '◐', t('Тема'), theme_name,
-            self._trailing_state('', '›'), self.cycle_theme))
+            '◐', t('Тема'), self.theme_label(),
+            self._trailing_state('', '›'), self.open_theme_picker))
         lang_name = LANGUAGES.get(current_language(), 'Español')
         rows_box.add_widget(self._settings_row(
             '⊕', t('Язык'), lang_name,
@@ -3672,11 +3723,10 @@ class Hua4GMonApp(App):
         box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
                  size=lambda *_: setattr(rect, 'size', box.size))
         popup = Popup(title=t("Меню"), content=box, size_hint=(0.85, None),
-                      height=dp(575), background='',
+                      height=dp(520), background='',
                       title_color=(1, 1, 1, 1),
-                      separator_color=(0, 0.72, 0.58, 1),
+                      separator_color=self.c_accent,
                       separator_height=dp(3))
-        sun = self.theme_name == 'sun'
         items = [
             (t("ℹ Информация"), lambda: self.go('info')),
             (t("Графики"), lambda: self.go('charts')),
@@ -3684,8 +3734,6 @@ class Hua4GMonApp(App):
             (t("Соты"), lambda: self.go('cells')),
             (t('Сканер наблюдений · Beta'), self.open_survey),
             (t("⚙ Сеть"), lambda: self.go('tools')),
-            (t("☀ Солнце: выкл") if sun else t("☀ Солнце: вкл"),
-             lambda: self.apply_theme('dark' if sun else 'sun')),
             (t("Настройки"), lambda: self.go('settings')),
             (t("⏏ Отключиться"), self.confirm_disconnect),
         ]

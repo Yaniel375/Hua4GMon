@@ -318,3 +318,15 @@ def test_band_log_csv():
     assert 'CUBACEL CU' in row
     assert '36801' in row or '368 01' in row
     assert '-90' in row  # RSRP median of -100, -90, -80
+
+
+def test_theme_picker_translations():
+    """El selector Tema: Oscuro / Claro / Predeterminado, en EN y ES."""
+    for lang, dark, light, default in (
+            ('en', 'Dark', 'Light', 'Default'),
+            ('es', 'Oscuro', 'Claro', 'Predeterminado')):
+        set_language(lang)
+        assert t('Тёмная') == dark
+        assert t('Светлая') == light
+        assert t('По умолчанию') == default
+        assert t('Тема') == ('Theme' if lang == 'en' else 'Tema')

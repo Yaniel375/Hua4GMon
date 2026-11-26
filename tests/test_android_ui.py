@@ -668,6 +668,7 @@ def test_menu_kept_and_styled(app):
     from kivy.core.window import Window
     from kivy.graphics import RoundedRectangle
     from kivy.uix.popup import Popup
+    app.apply_theme('default')  # the menu label shows the current theme
     app.go('monitor')
     pump(lambda: False, 0.3)
     scr = app.sm.get_screen('monitor')
@@ -691,8 +692,10 @@ def test_menu_kept_and_styled(app):
         texts = [w.text for w in box.children if hasattr(w, 'text')]
         for expected in ('ℹ Информация', 'Графики', 'Карта', 'Соты',
                          'Сканер наблюдений · Beta', '⚙ Сеть',
-                         '☀ Солнце: вкл', 'Настройки', '⏏ Отключиться'):
+                         'Настройки', '⏏ Отключиться'):
             assert expected in texts, expected
+        assert not [x for x in texts if x.startswith('◐ Тема:')], (
+            'el tema solo se elige en Ajustes, no en el Menú')
         info_btn = next(w for w in box.children if w.text == 'ℹ Информация')
         info_btn.dispatch('on_release')
         assert app.sm.current == 'info'
@@ -701,6 +704,139 @@ def test_menu_kept_and_styled(app):
             if isinstance(widget, Popup):
                 widget.dismiss()
         pump(lambda: False, 0.1)
+
+
+def test_themes_change_whole_app(app):
+    """Cada tema cambia la app completa: colores de la app, fondo de la
+    ventana, barra inferior, cabecera y tarjetas de Ajustes, chip de
+    Gráficos y separador del Menú — nada queda con el color del otro
+    tema."""
+    from kivy.core.window import Window
+    from kivy.graphics import Color
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    import android_main
+
+    def canvas_color(widget):
+        colors = [i for i in widget.canvas.before.children
+                  if isinstance(i, Color)]
+        assert colors, f'sin Color en canvas.before de {widget}'
+        return list(colors[0].rgba)
+
+    for name in ('default', 'dark'):
+        theme = android_main.THEMES[name]
+        app.apply_theme(name)
+        pump(lambda: False, 0.2)
+        for key in ('c_bg', 'c_card', 'c_text', 'c_sub', 'c_accent',
+                    'c_button2', 'c_grid'):
+            assert list(getattr(app, key)) == theme[key], (name, key)
+        assert list(Window.clearcolor) == list(theme['c_bg'])
+
+        # Ajustes se reconstruye al cambiar el tema: cabecera, tarjeta
+        # de icono y fila Tema llevan los colores del tema activo.
+        app.refresh_settings_screen()
+        scr = app.sm.get_screen('settings')
+        scr.refresh_texts()
+        header = next(w for w in scr.walk()
+                      if isinstance(w, Label) and w.text == scr.lbl_prefs)
+        assert list(header.color) == list(theme['c_accent'])
+        rows = [w for w in scr.walk()
+                if w.__class__.__name__ == 'SettingsRow']
+        assert rows
+        tile = next(w for w in rows[0].walk()
+                    if w.__class__.__name__ == 'AnchorLayout')
+        assert canvas_color(tile) == list(theme['c_button2'])
+        assert app.theme_label() in [w.text for w in scr.walk()
+                                     if isinstance(w, Label)]
+
+        # Barra inferior: el botón activo lleva el acento del tema.
+        app.go('monitor')
+        pump(lambda: False, 0.2)
+        monitor = app.sm.get_screen('monitor')
+        active = next(w for w in monitor.walk()
+                      if w.__class__.__name__ == 'NavButton' and w.active)
+        expected_pill = [round(c * 0.45, 4) for c in theme['c_accent'][:3]] + [1]
+        assert canvas_color(active) == pytest.approx(expected_pill, abs=1e-3)
+
+        # Gráficos: el chip de banda lleva el acento del tema y el fondo
+        # del gráfico, el color de fondo del tema.
+        app.go('charts')
+        pump(lambda: False, 0.2)
+        charts = app.sm.get_screen('charts')
+        assert list(charts.ids.charts_chip.chip_color) == list(theme['c_accent'])
+        graphs = [w for w in charts.walk()
+                  if w.__class__.__name__ == 'SignalGraph']
+        assert graphs, 'la pantalla Gráficos no tiene gráficos'
+        graph_colors = [list(i.rgba) for g in graphs for i in g.canvas.children
+                        if isinstance(i, Color)]
+        assert list(theme['c_graph_bg']) in graph_colors
+
+        # Menú: tarjeta y separador con los colores del tema.
+        app.open_menu()
+        try:
+            assert pump(lambda: any(isinstance(w, Popup)
+                                    for w in Window.children), 5)
+            menu = next(w for w in Window.children if isinstance(w, Popup))
+            assert list(menu.separator_color) == list(theme['c_accent'])
+            assert canvas_color(menu.content) == list(theme['c_card'])
+        finally:
+            for widget in list(Window.children):
+                if isinstance(widget, Popup):
+                    widget.dismiss()
+            pump(lambda: False, 0.1)
+    app.apply_theme('default')
+
+
+def test_menu_has_no_theme_item(app):
+    """Los temas solo se eligen en Ajustes: el Menú ya no lleva
+    botón «Tema: …» (el selector sigue abriéndose desde la fila
+    Tema de Ajustes, ver test_settings_screen)."""
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+    app.apply_theme('default')
+    app.go('monitor')
+    pump(lambda: False, 0.3)
+    scr = app.sm.get_screen('monitor')
+    nav_btns = [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton'
+                and w.nav_text == app.nav_menu]
+    nav_btns[0].dispatch('on_release')
+    try:
+        assert pump(lambda: any(isinstance(w, Popup)
+                                for w in Window.children), 5)
+        menu = next(w for w in Window.children if isinstance(w, Popup))
+        texts = [w.text for w in menu.content.children
+                 if hasattr(w, 'text')]
+        assert len(texts) == 8
+        assert not [x for x in texts if 'Тема' in x]
+    finally:
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
+def test_three_theme_palettes(app):
+    """Oscuro = negro cristalino, Predeterminado = verde NetMonster
+    (el tema con el que arranca la app). La paleta blanca «Sol» sigue
+    definida para el contraste a pleno sol, pero ya no se ofrece."""
+    import android_main
+    assert android_main.DEFAULT_THEME == 'default'
+    app.apply_theme('dark')
+    assert app.theme_name == 'dark'
+    assert app.c_bg == [0, 0, 0, 1]
+    assert app.c_card == [0.08, 0.08, 0.09, 1]
+    app.apply_theme('sun')
+    assert app.c_bg == [1, 1, 1, 1]
+    app.apply_theme('default')
+    assert app.theme_name == 'default'
+    assert app.c_bg == [0.04, 0.08, 0.06, 1]
+    assert app.c_card == [0.09, 0.13, 0.10, 1]
+    assert app.theme_label() == 'По умолчанию'
+    app.apply_theme('dark')
+    assert app.theme_label() == 'Тёмная'
+    app.apply_theme('default')  # restore the startup theme
 
 
 def test_bottom_nav_fixed_on_all_screens(app):
@@ -837,6 +973,7 @@ def _settings_row_by_title(rows, title):
 def test_settings_screen(app):
     from kivy.core.window import Window
     from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
     from kivy.uix.switch import Switch
     app.go('settings')
     pump(lambda: False, 0.3)
@@ -852,7 +989,7 @@ def test_settings_screen(app):
     for expected in ('Мониторизация в фоновом режиме', 'Общие',
                      'Уведомления', 'Тема', 'Язык'):
         assert expected in texts, expected
-    assert 'Тёмная' in texts  # default theme is dark, default lang is ru
+    assert 'По умолчанию' in texts  # default theme: NetMonster green
     assert 'Русский' in texts or 'Español' in texts
     # The bottom nav does not belong to the settings screen.
     assert not [w for w in scr.walk()
@@ -865,16 +1002,44 @@ def test_settings_screen(app):
     assert app.background_monitoring is False
     sw.active = True
     assert app.background_monitoring is True
-    # Theme row cycles dark -> sun -> dark, subtitle follows.
-    theme_row = _settings_row_by_title(rows, 'Тема')
-    theme_row.dispatch('on_release')
-    assert app.theme_name == 'sun'
+    # Theme row opens the picker; choosing Oscuro switches to the
+    # crystalline black, Predeterminado restores the NetMonster green.
+    def theme_row_now():
+        rows_now = [w for w in scr.walk()
+                    if w.__class__.__name__ == 'SettingsRow']
+        return _settings_row_by_title(rows_now, 'Тема')
+
+    def open_picker():
+        theme_row_now().dispatch('on_release')
+        assert pump(lambda: any(
+            isinstance(w, Popup) and w.title == 'Тема'
+            for w in Window.children), 5)
+        return next(w for w in Window.children
+                    if isinstance(w, Popup) and w.title == 'Тема')
+
+    def pick(popup, text):
+        btn = next(w for w in popup.content.children if w.text == text)
+        btn.dispatch('on_release')
+
+    picker = open_picker()
+    texts = [w.text for w in picker.content.children if hasattr(w, 'text')]
+    for expected in ('✓ По умолчанию', 'Тёмная'):
+        assert expected in texts, expected
+    assert 'Светлая' not in texts  # solo Predeterminado y Oscuro
+    pick(picker, 'Тёмная')
+    assert app.theme_name == 'dark'
     pump(lambda: False, 0.2)
-    assert 'Солнце' in ' | '.join(
+    assert 'Тёмная' in ' | '.join(
         w.text for w in scr.walk()
         if isinstance(w, Label) and w.text)
-    theme_row.dispatch('on_release')
-    assert app.theme_name == 'dark'
+    picker = open_picker()
+    pick(picker, 'По умолчанию')
+    assert app.theme_name == 'default'
+    pump(lambda: False, 0.2)
+    assert 'По умолчанию' in ' | '.join(
+        w.text for w in scr.walk()
+        if isinstance(w, Label) and w.text)
+    app.apply_theme('default')  # restore the startup theme
     # General row opens the info screen.
     _settings_row_by_title(rows, 'Общие').dispatch('on_release')
     assert app.sm.current == 'info'
