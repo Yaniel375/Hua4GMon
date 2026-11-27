@@ -92,6 +92,39 @@ def test_graph_param_reorders_cards(app):
     assert ids.primary_box.m_name == "SINR"
 
 
+def test_signal_screen_has_no_sound_button(app):
+    """La pantalla Señal ya no tiene botón de sonido: solo Picos y Menú."""
+    from kivy.uix.button import Button
+    ensure_online(app)
+    scr = app.sm.get_screen('monitor')
+    texts = [w.text for w in scr.walk() if isinstance(w, Button)]
+    assert not any('Звук' in text for text in texts)
+    assert any('Пики' in text for text in texts)
+    assert any('Меню' in text for text in texts)
+    assert not hasattr(scr, 'lbl_sound')
+
+
+def test_signal_tabs_and_new_sections(app):
+    """Pestañas ESPECTRO/SEÑAL y secciones nuevas con datos del router."""
+    ensure_online(app)
+    scr = app.sm.get_screen('monitor')
+    ids = scr.ids
+    assert scr.signal_tab == 'spec'
+    assert ids.spec_pane.opacity == 1 and ids.sig_pane.opacity == 0
+    scr.signal_tab = 'sig'
+    assert ids.sig_pane.opacity == 1 and ids.spec_pane.opacity == 0
+    scr.signal_tab = 'spec'
+    assert 'EARFCN' in ids.spec_info_lbl.text
+    assert 'MegaFon' in ids.cell_title_lbl.text
+    assert 'PCI' in ids.tower_lbl.text
+    assert '12345' in ids.cell_extra_lbl.text
+    assert 'MegaFon' in ids.op_val_lbl.text and '25002' in ids.op_val_lbl.text
+    assert ids.net_val_lbl.text not in ('', '-')
+    assert ids.nettype_val_lbl.text not in ('', '-')
+    assert 'ОБНОВЛЕНО' in ids.updated_lbl.text
+    assert ids.conn_count_lbl.text == '(1)'
+
+
 def test_band_lock_restore_and_antenna(app):
     ensure_online(app)
     modem = app.demo_modem

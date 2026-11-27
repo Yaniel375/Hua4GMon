@@ -572,6 +572,129 @@ class PinchGraph(SignalGraph):
         return True
 
 
+class SpectrumGraph(Widget):
+    """Espectro de la pantalla Señal (estilo NetMonster).
+
+    El router no entrega curva de espectro, así que no se inventa
+    ninguna: se dibuja la línea plana de fondo, se resalta el segmento
+    de la banda conectada y se marca el EARFCN. Sin celda conectada
+    muestra el mismo estado vacío que NetMonster.
+    """
+
+    # Segmentos del eje de frecuencias (fracción del ancho del gráfico).
+    _SEGMENTS: dict[str, tuple[float, float]] = {
+        'LOW': (0.00, 0.28), '1800': (0.28, 0.48), '2100': (0.48, 0.64),
+        '2300': (0.64, 0.82), '2600': (0.82, 1.00),
+    }
+    _SEG_LABELS: tuple[tuple[str, str], ...] = (
+        ('LOW', 'LOW 600-960'), ('1800', '1800'), ('2100', '2100'),
+        ('2300', '2300'), ('2600', '2600'),
+    )
+    _BAND_SEGMENT: dict[int, str] = {
+        1: '2100', 3: '1800', 7: '2600', 8: 'LOW', 20: 'LOW', 28: 'LOW',
+        38: '2600', 40: '2300', 41: '2600',
+    }
+
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self._title = ''
+        self._registered = False
+        self._segment: str | None = None
+        self._tex: dict[tuple, Any] = {}
+        self.bind(pos=lambda *a: self._redraw(), size=lambda *a: self._redraw())
+
+    def set_band(self, title: str, registered: bool,
+                 band: int | None, freq_mhz: float | None) -> None:
+        """Actualiza la banda conectada y redibuja."""
+        self._title = title
+        self._registered = registered
+        self._segment = None
+        if registered:
+            if band is not None:
+                self._segment = self._BAND_SEGMENT.get(band)
+            if self._segment is None and freq_mhz:
+                if freq_mhz < 1000:
+                    self._segment = 'LOW'
+                elif freq_mhz < 1900:
+                    self._segment = '1800'
+                elif freq_mhz < 2200:
+                    self._segment = '2100'
+                elif freq_mhz < 2400:
+                    self._segment = '2300'
+                elif freq_mhz < 2700:
+                    self._segment = '2600'
+        self._redraw()
+
+    def _texture(self, text: str, size: float, color: tuple, bold: bool = False) -> Any:
+        key = (text, size, color, bold)
+        tex = self._tex.get(key)
+        if tex is None:
+            from kivy.core.text import Label as CoreLabel
+            lbl = CoreLabel(text=text, font_size=size, bold=bold, color=color)
+            lbl.refresh()
+            tex = lbl.texture
+            if len(self._tex) >= 32:
+                self._tex.clear()
+            self._tex[key] = tex
+        return tex
+
+    def _redraw(self) -> None:
+        from kivy.graphics import Color, Line, Rectangle
+        app = App.get_running_app()
+        theme = THEMES[app.theme_name] if app else THEMES['dark']
+        sub_col = tuple(theme['c_sub'])
+        self.canvas.clear()
+        w, h = self.width, self.height
+        pl, pr, pt, pb = dp(34), dp(8), dp(24), dp(20)
+        plot_w, plot_h = w - pl - pr, h - pt - pb
+        if plot_w <= dp(20) or plot_h <= dp(20):
+            return
+        x0, y0 = self.x + pl, self.y + pb
+
+        def y_of(dbm: float) -> float:
+            # -80 dBm (fuerte) arriba, -130 dBm (débil) abajo.
+            return y0 + plot_h * (1 - (-dbm - 70) / 60)  # -70..-130 dBm
+
+        with self.canvas:
+            Color(*theme['c_graph_bg'])
+            Rectangle(pos=self.pos, size=self.size)
+            for dbm in (-80, -100, -120):
+                gy = y_of(dbm)
+                Color(*theme['c_grid'])
+                Line(points=[x0, gy, x0 + plot_w, gy], width=1)
+                tex = self._texture(str(dbm), sp(11), sub_col)
+                Color(1, 1, 1, 1)
+                Rectangle(texture=tex, pos=(x0 - tex.width - dp(4), gy - tex.height / 2),
+                          size=tex.size)
+            if self._segment is not None:
+                s0, s1 = self._SEGMENTS[self._segment]
+                bx0, bx1 = x0 + plot_w * s0, x0 + plot_w * s1
+                Color(0.05, 0.65, 0.39, 0.14)
+                Rectangle(pos=(bx0, y0), size=(bx1 - bx0, plot_h))
+                Color(0.05, 0.65, 0.39, 0.7)
+                Line(points=[bx0, y0, bx0, y0 + plot_h, bx1, y0 + plot_h, bx1, y0],
+                     width=1, dash_length=dp(4), dash_offset=dp(3))
+                mx = (bx0 + bx1) / 2
+                Color(1, 1, 1, 1)
+                Line(points=[mx, y0 + dp(4), mx, y0 + plot_h - dp(4)], width=dp(1.5))
+            Color(*theme['c_accent'])
+            Line(points=[x0, y_of(-120), x0 + plot_w, y_of(-120)], width=dp(1.5))
+            if self._title:
+                title_col = tuple(theme['c_accent']) if self._registered else sub_col
+                tex = self._texture(self._title, sp(11), title_col, True)
+                Color(1, 1, 1, 1)
+                Rectangle(texture=tex,
+                          pos=(x0 + (plot_w - tex.width) / 2, self.y + h - dp(19)),
+                          size=tex.size)
+            for key, label in self._SEG_LABELS:
+                s0, s1 = self._SEGMENTS[key]
+                tex = self._texture(label, sp(10), sub_col)
+                Color(1, 1, 1, 1)
+                Rectangle(texture=tex,
+                          pos=(x0 + plot_w * (s0 + s1) / 2 - tex.width / 2, self.y + dp(3)),
+                          size=tex.size)
+
+
 class RotatedBox(Widget):
     """Показывает вложенный layout повёрнутым на 90° (альбомно).
 
@@ -630,6 +753,12 @@ KV = """
         Line:
             rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1)
             width: dp(1)
+
+<TabButton@Button>:
+    background_normal: ''
+    background_color: 0, 0, 0, 0
+    bold: True
+    font_size: sp(14)
 
 <SectionCard@BoxLayout>:
     orientation: 'vertical'
@@ -847,6 +976,27 @@ ScreenManager:
         orientation: 'vertical'
         padding: dp(8)
         spacing: dp(6)
+        BoxLayout:
+            size_hint_y: None
+            height: dp(30)
+            Label:
+                text: root.lbl_signal
+                font_size: sp(21)
+                bold: True
+                color: app.c_text
+                size_hint_x: 0.7
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'middle'
+            Label:
+                id: updated_lbl
+                text: ''
+                font_size: sp(11)
+                color: app.c_sub
+                size_hint_x: 0.3
+                text_size: self.width, None
+                halign: 'right'
+                valign: 'middle'
         Label:
             id: status_lbl
             text: ''
@@ -857,89 +1007,352 @@ ScreenManager:
             height: self.texture_size[1] + dp(2)
             text_size: self.width, None
             halign: 'center'
-        Label:
-            id: tower_lbl
-            text: '—'
-            font_size: sp(15)
-            bold: True
-            color: app.c_text
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-            canvas.after:
-                Color:
-                    rgba: app.c_accent
-                Line:
-                    points: [self.center_x - dp(32), self.y + dp(2), self.center_x + dp(32), self.y + dp(2)]
-                    width: dp(2.5)
-        Label:
-            id: event_lbl
-            text: ''
-            font_size: sp(13)
-            color: app.c_sub
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'center'
-        GridLayout:
-            id: metrics_grid
-            cols: 2
-            rows: 2
-            spacing: dp(6)
-            size_hint_y: 0.47
-            MetricCard:
-                id: primary_box
-            MetricCard:
-                id: secondary_box
-            MetricCard:
-                id: small1_box
-            MetricCard:
-                id: small2_box
-        Label:
-            id: advice_lbl
-            text: ''
-            font_size: sp(13)
-            color: root.advice_color
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'left'
         BoxLayout:
             size_hint_y: None
             height: dp(42)
-            spacing: dp(6)
-            Spinner:
-                id: graph_param
-                text: 'sinr'
-                values: root.graph_values
-                size_hint_x: 0.5
-                font_size: sp(15)
-                on_text: app.set_graph_param(self.text)
-            FlatButton:
-                text: root.lbl_fullscreen
-                size_hint_x: 0.5
-                font_size: sp(14)
-                on_release: app.open_fullscreen_graph()
-        SignalGraph:
-            id: signal_graph
-            size_hint_y: 0.26
+            spacing: dp(4)
+            BoxLayout:
+                orientation: 'vertical'
+                TabButton:
+                    text: root.lbl_spectrum
+                    color: app.c_accent if root.signal_tab == 'spec' else app.c_sub
+                    on_release: root.signal_tab = 'spec'
+                Widget:
+                    size_hint_y: None
+                    height: dp(2)
+                    canvas.before:
+                        Color:
+                            rgba: app.c_accent if root.signal_tab == 'spec' else (0, 0, 0, 0)
+                        Rectangle:
+                            pos: self.pos
+                            size: self.size
+            BoxLayout:
+                orientation: 'vertical'
+                TabButton:
+                    text: root.lbl_signal_tab
+                    color: app.c_accent if root.signal_tab == 'sig' else app.c_sub
+                    on_release: root.signal_tab = 'sig'
+                Widget:
+                    size_hint_y: None
+                    height: dp(2)
+                    canvas.before:
+                        Color:
+                            rgba: app.c_accent if root.signal_tab == 'sig' else (0, 0, 0, 0)
+                        Rectangle:
+                            pos: self.pos
+                            size: self.size
+        ScrollView:
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(12)
+                BoxLayout:
+                    id: spec_pane
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height if root.signal_tab == 'spec' else 0
+                    opacity: 1 if root.signal_tab == 'spec' else 0
+                    disabled: root.signal_tab != 'spec'
+                    spacing: dp(6)
+                    SectionCard:
+                        SpectrumGraph:
+                            id: spectrum_graph
+                            size_hint_y: None
+                            height: dp(180)
+                        Label:
+                            id: spec_info_lbl
+                            text: ''
+                            font_size: sp(13)
+                            color: app.c_sub
+                            size_hint_y: None
+                            height: self.texture_size[1] + dp(2)
+                            text_size: self.width, None
+                            halign: 'center'
+                BoxLayout:
+                    id: sig_pane
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height if root.signal_tab == 'sig' else 0
+                    opacity: 1 if root.signal_tab == 'sig' else 0
+                    disabled: root.signal_tab != 'sig'
+                    spacing: dp(6)
+                    GridLayout:
+                        id: metrics_grid
+                        cols: 2
+                        rows: 2
+                        spacing: dp(6)
+                        size_hint_y: None
+                        height: dp(280)
+                        MetricCard:
+                            id: primary_box
+                        MetricCard:
+                            id: secondary_box
+                        MetricCard:
+                            id: small1_box
+                        MetricCard:
+                            id: small2_box
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(42)
+                        spacing: dp(6)
+                        Spinner:
+                            id: graph_param
+                            text: 'sinr'
+                            values: root.graph_values
+                            size_hint_x: 0.5
+                            font_size: sp(15)
+                            on_text: app.set_graph_param(self.text)
+                        FlatButton:
+                            text: root.lbl_fullscreen
+                            size_hint_x: 0.5
+                            font_size: sp(14)
+                            on_release: app.open_fullscreen_graph()
+                    SignalGraph:
+                        id: signal_graph
+                        size_hint_y: None
+                        height: dp(210)
+                    Label:
+                        id: advice_lbl
+                        text: ''
+                        font_size: sp(13)
+                        color: root.advice_color
+                        size_hint_y: None
+                        height: self.texture_size[1] if self.text else 0
+                        text_size: self.width, None
+                        halign: 'left'
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(24)
+                    Label:
+                        text: root.lbl_connections
+                        font_size: sp(13)
+                        bold: True
+                        color: app.c_text
+                        size_hint_x: 0.7
+                        text_size: self.width, None
+                        halign: 'left'
+                        valign: 'middle'
+                    Label:
+                        id: conn_count_lbl
+                        text: '(0)'
+                        font_size: sp(13)
+                        color: app.c_sub
+                        size_hint_x: 0.3
+                        text_size: self.width, None
+                        halign: 'right'
+                        valign: 'middle'
+                SectionCard:
+                    BoxLayout:
+                        size_hint_y: None
+                        height: self.minimum_height
+                        spacing: dp(10)
+                        Label:
+                            text: '●'
+                            font_size: sp(14)
+                            color: app.c_accent
+                            size_hint_x: None
+                            width: dp(16)
+                            size_hint_y: None
+                            height: dp(24)
+                            text_size: self.width, None
+                            halign: 'center'
+                            valign: 'top'
+                        BoxLayout:
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: self.minimum_height
+                            spacing: dp(2)
+                            Label:
+                                id: cell_title_lbl
+                                text: '—'
+                                font_size: sp(15)
+                                bold: True
+                                color: app.c_text
+                                size_hint_y: None
+                                height: self.texture_size[1] + dp(2)
+                                text_size: self.width, None
+                                halign: 'left'
+                            Label:
+                                id: tower_lbl
+                                text: '—'
+                                font_size: sp(13)
+                                color: app.c_sub
+                                size_hint_y: None
+                                height: self.texture_size[1] + dp(2)
+                                text_size: self.width, None
+                                halign: 'left'
+                            Label:
+                                id: cell_extra_lbl
+                                text: ''
+                                font_size: sp(13)
+                                color: app.c_sub
+                                size_hint_y: None
+                                height: self.texture_size[1] if self.text else 0
+                                text_size: self.width, None
+                                halign: 'left'
+                    Label:
+                        id: event_lbl
+                        text: ''
+                        font_size: sp(13)
+                        color: app.c_sub
+                        size_hint_y: None
+                        height: self.texture_size[1] if self.text else 0
+                        text_size: self.width, None
+                        halign: 'left'
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(24)
+                    Label:
+                        text: root.lbl_radio_tools
+                        font_size: sp(13)
+                        bold: True
+                        color: app.c_text
+                        size_hint_x: 0.7
+                        text_size: self.width, None
+                        halign: 'left'
+                        valign: 'middle'
+                    Label:
+                        text: 'EARFCN'
+                        font_size: sp(13)
+                        color: app.c_sub
+                        size_hint_x: 0.3
+                        text_size: self.width, None
+                        halign: 'right'
+                        valign: 'middle'
+                SectionCard:
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(56)
+                        spacing: dp(10)
+                        BoxLayout:
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: self.minimum_height
+                            spacing: dp(2)
+                            Label:
+                                text: root.lbl_bandlock
+                                font_size: sp(15)
+                                bold: True
+                                color: app.c_text
+                                size_hint_y: None
+                                height: self.texture_size[1] + dp(2)
+                                text_size: self.width, None
+                                halign: 'left'
+                            Label:
+                                text: root.lbl_bandlock_hint
+                                font_size: sp(13)
+                                color: app.c_sub
+                                size_hint_y: None
+                                height: self.texture_size[1] + dp(2)
+                                text_size: self.width, None
+                                halign: 'left'
+                        FlatButton:
+                            text: root.lbl_open
+                            size_hint_x: None
+                            width: dp(90)
+                            size_hint_y: None
+                            height: dp(40)
+                            on_release: app.go('tools')
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(24)
+                    Label:
+                        text: root.lbl_network_details
+                        font_size: sp(13)
+                        bold: True
+                        color: app.c_text
+                        size_hint_x: 0.7
+                        text_size: self.width, None
+                        halign: 'left'
+                        valign: 'middle'
+                    Label:
+                        id: net_head_lbl
+                        text: ''
+                        font_size: sp(13)
+                        color: app.c_sub
+                        size_hint_x: 0.3
+                        text_size: self.width, None
+                        halign: 'right'
+                        valign: 'middle'
+                SectionCard:
+                    GridLayout:
+                        cols: 2
+                        spacing: dp(4)
+                        size_hint_y: None
+                        height: self.minimum_height
+                        Label:
+                            text: root.lbl_operator
+                            font_size: sp(14)
+                            color: app.c_sub
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'left'
+                            valign: 'middle'
+                        Label:
+                            id: op_val_lbl
+                            text: '—'
+                            font_size: sp(14)
+                            bold: True
+                            color: app.c_text
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'right'
+                            valign: 'middle'
+                        Label:
+                            text: root.lbl_network
+                            font_size: sp(14)
+                            color: app.c_sub
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'left'
+                            valign: 'middle'
+                        Label:
+                            id: net_val_lbl
+                            text: '—'
+                            font_size: sp(14)
+                            bold: True
+                            color: app.c_text
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'right'
+                            valign: 'middle'
+                        Label:
+                            text: root.lbl_network_type
+                            font_size: sp(14)
+                            color: app.c_sub
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'left'
+                            valign: 'middle'
+                        Label:
+                            id: nettype_val_lbl
+                            text: '—'
+                            font_size: sp(14)
+                            bold: True
+                            color: app.c_text
+                            size_hint_y: None
+                            height: dp(26)
+                            text_size: self.width, None
+                            halign: 'right'
+                            valign: 'middle'
         BoxLayout:
             size_hint_y: None
             height: dp(56)
             spacing: dp(6)
-            FlatButton:
-                text: root.lbl_sound
-                background_color: app.c_accent if app.sound_on else app.c_button2
-                color: app.c_on_accent if app.sound_on else app.c_text
-                on_release: app.toggle_sound()
             FlatButton:
                 text: root.lbl_peaks
                 on_release: app.reset_peaks()
             FlatButton:
                 text: root.lbl_menu
                 on_release: app.open_menu()
-
 <InfoScreen>:
     name: 'info'
     canvas.before:
@@ -1179,10 +1592,22 @@ class ConnectionScreen(Screen):
 
 
 class MonitorScreen(Screen):
+    signal_tab = StringProperty('spec')
     lbl_fullscreen = StringProperty("")
-    lbl_sound = StringProperty("")
     lbl_peaks = StringProperty("")
     lbl_menu = StringProperty("")
+    lbl_signal = StringProperty("")
+    lbl_spectrum = StringProperty("")
+    lbl_signal_tab = StringProperty("")
+    lbl_connections = StringProperty("")
+    lbl_radio_tools = StringProperty("")
+    lbl_open = StringProperty("")
+    lbl_network_details = StringProperty("")
+    lbl_operator = StringProperty("")
+    lbl_network = StringProperty("")
+    lbl_network_type = StringProperty("")
+    lbl_bandlock = StringProperty("")
+    lbl_bandlock_hint = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
     status_color = ListProperty([0.05, 0.65, 0.39, 1])
     advice_color = ListProperty([0.92, 0.71, 0.03, 1])
@@ -1192,9 +1617,21 @@ class MonitorScreen(Screen):
 
     def refresh_texts(self) -> None:
         self.lbl_fullscreen = t("Во весь экран")
-        self.lbl_sound = t("♪ Звук")
         self.lbl_peaks = t("⟲ Пики")
         self.lbl_menu = t("☰ Меню")
+        self.lbl_signal = t("СИГНАЛ")
+        self.lbl_spectrum = t("СПЕКТР")
+        self.lbl_signal_tab = t("СИГНАЛ")
+        self.lbl_connections = t("АКТИВНЫЕ СОЕДИНЕНИЯ")
+        self.lbl_radio_tools = t("ИНСТРУМЕНТЫ РАДИО")
+        self.lbl_open = t("ОТКРЫТЬ")
+        self.lbl_network_details = t("ДЕТАЛИ СЕТИ")
+        self.lbl_operator = t("Оператор (PLMN)")
+        self.lbl_network = t("Сеть")
+        self.lbl_network_type = t("Тип сети")
+        self.lbl_bandlock = t("Фиксация частот (Band Lock)")
+        self.lbl_bandlock_hint = t(
+            "Фиксирует LTE-бэнды роутера для улучшения сигнала.")
 
 
 class TopScrollScreen(Screen):
@@ -1683,9 +2120,53 @@ class Hua4GMonApp(App):
             tips.insert(0, snap.network_message)
         ids.advice_lbl.text = "\n".join("• " + t(tip) for tip in tips[:2])
         scr.advice_color = hex_to_rgba('#EAB308', sun)
+        nd = t("Нет данных")
+        ids.updated_lbl.text = t("ОБНОВЛЕНО ТОЛЬКО ЧТО") if snap.registered else ""
+        ids.conn_count_lbl.text = "(1)" if snap.registered else "(0)"
+        band_short = self._band_short(snap)
+        if snap.registered:
+            operator = snap.operator or t("Неизвестный оператор")
+            ids.cell_title_lbl.text = (f"{operator} · {band_short}"
+                                      if band_short != "—" else operator)
+            ids.cell_extra_lbl.text = (
+                f"eNb:CID {fmt_num(snap.enodeb)}:{fmt_num(snap.sector)}"
+                f" · TAC {snap.tac or '—'}")
+            spec_title = f"{t('СОТА ПОДКЛЮЧЕНА')} · {band_short}"
+            ids.op_val_lbl.text = (f"{operator} ({snap.plmn})"
+                                   if snap.plmn else operator)
+            rat_label = t(RAT_LABELS.get(snap.rat, snap.rat)) if snap.rat else nd
+            ids.net_val_lbl.text = rat_label
+            ids.nettype_val_lbl.text = snap.rat.upper() if snap.rat else nd
+            ids.net_head_lbl.text = (f"{operator} · {rat_label}"
+                                     if snap.rat else operator)
+        else:
+            ids.cell_title_lbl.text = t(snap.network_message)
+            ids.cell_extra_lbl.text = ""
+            spec_title = t("СОТА НЕ ПОДКЛЮЧЕНА")
+            ids.op_val_lbl.text = nd
+            ids.net_val_lbl.text = nd
+            ids.nettype_val_lbl.text = nd
+            ids.net_head_lbl.text = ""
+        ids.spectrum_graph.set_band(
+            spec_title, snap.registered,
+            snap.bands[0] if snap.bands else None, snap.freq_mhz)
+        earfcn = snap.earfcn_raw or (str(snap.earfcn)
+                                     if snap.earfcn is not None else "")
+        spec_parts = [p for p in (f"EARFCN {earfcn}" if earfcn else "",
+                                  snap.dl_bandwidth or "",
+                                  band_short if band_short != "—" else "") if p]
+        ids.spec_info_lbl.text = " · ".join(spec_parts) or "—"
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
+
+    def _band_short(self, snap: Snapshot) -> str:
+        """Banda corta para la cabecera: 'LTE 1800' o 'B3'."""
+        if snap.freq_mhz:
+            return f"LTE {snap.freq_mhz:g} {t('МГц')}"
+        if snap.bands:
+            return f"B{snap.bands[0]}"
+        return snap.band_label if snap.band_label not in ("", "-") else "—"
 
     def _tower_summary(self, snap: Snapshot) -> str:
         snap = snap.display()
