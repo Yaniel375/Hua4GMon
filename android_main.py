@@ -72,7 +72,13 @@ from kivy.clock import Clock
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
 from kivy.metrics import dp, sp
-from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
+from kivy.properties import (
+    BooleanProperty,
+    ListProperty,
+    NumericProperty,
+    ObjectProperty,
+    StringProperty,
+)
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -85,6 +91,7 @@ from core import (
     DISCOVERY_CANDIDATES,
     GRAPH_HISTORY,
     LANGUAGES,
+    LTE_BAND_TABLE,
     MIMO_LABELS,
     RAT_LABELS,
     REGION_BANDS,
@@ -101,7 +108,6 @@ from core import (
     calculate_overall_health,
     configure_library_logging,
     current_language,
-    demo_angle_hint,
     demo_factory,
     diagnostics_json,
     discover_router,
@@ -217,6 +223,80 @@ def hex_to_rgba(color: str, sun: bool = False) -> list[float]:
     except (ValueError, IndexError):
         rgb = [0.5, 0.5, 0.5]
     return [*rgb, 1.0]
+
+
+# Original mejorado: MCC → código ISO del país para la cabecera
+# («OPERADOR · CU»). Asignaciones ITU; si el MCC no está, solo «OPERADOR».
+_MCC_COUNTRY: dict[str, str] = {
+    '208': 'FR', '214': 'ES', '222': 'IT', '226': 'RO', '228': 'CH',
+    '230': 'CZ', '231': 'SK', '232': 'AT', '234': 'GB', '238': 'DK',
+    '242': 'NO', '244': 'FI', '246': 'LT', '247': 'LV', '248': 'EE',
+    '250': 'RU', '255': 'UA', '257': 'BY', '260': 'PL', '262': 'DE',
+    '268': 'PT', '272': 'IE', '310': 'US', '311': 'US', '312': 'US',
+    '334': 'MX', '368': 'CU', '401': 'KZ', '716': 'PE', '722': 'AR',
+    '724': 'BR', '730': 'CL', '732': 'CO', '738': 'BO', '740': 'EC',
+    '744': 'PY', '746': 'JM',
+}
+
+
+def _operator_sub(plmn: str) -> str:
+    """'OPERADOR · CU' — el país sale del MCC del PLMN, si se conoce."""
+    cc = _MCC_COUNTRY.get(plmn[:3]) if len(plmn) >= 3 else None
+    text = f"{t('Оператор')} · {cc}" if cc else t('Оператор')
+    return text.upper()
+
+
+def _format_plmn(plmn: str) -> str:
+    """'36801' → '368 01' (MCC + MNC)."""
+    if len(plmn) in (5, 6):
+        return f"{plmn[:3]} {plmn[3:]}"
+    return plmn
+
+
+def _tech_chip(rat: str) -> str:
+    """Chip de tecnología para la cabecera ('4G LTE', '5G NSA'...)."""
+    return {'lte': '4G LTE', 'lte_ca': '4G LTE+', 'nr_nsa': '5G NSA',
+            'nr_sa': '5G SA', '3g': '3G', '2g': '2G'}.get(rat, '')
+
+
+def _band_freq_name(band: int) -> str:
+    """Frecuencia nominal del bánd ('1800' para B3) o '' si no se conoce."""
+    info = LTE_BAND_TABLE.get(band)
+    if info is None:
+        return ""
+    return info[0].split()[0]
+
+
+def _dash_num(value: float | int | None) -> str:
+    """Número o '—' si falta (las filas de INFORMACIÓN LTE)."""
+    text = fmt_num(value)
+    return "—" if text == "-" else text
+
+
+def _meter_gradient_texture() -> Any:
+    """Textura 256x1 con el degradado rojo→ámbar→verde de la piel.
+
+    La usa MeterBar: el degradado cubre todo el rango y tex_coords
+    recorta la parte visible, como en la vista previa.
+    """
+    from kivy.graphics.texture import Texture
+    stops = [(0.0, (0xEF, 0x44, 0x44)), (0.38, (0xEA, 0xB3, 0x08)),
+             (0.62, (0x0C, 0xA6, 0x63)), (1.0, (0x0C, 0xA6, 0x63))]
+    buf = bytearray()
+    for x in range(256):
+        frac = x / 255.0
+        red, green, blue = stops[-1][1]
+        for (t0, c0), (t1, c1) in zip(stops, stops[1:], strict=True):
+            if t0 <= frac <= t1:
+                f = 0.0 if t1 == t0 else (frac - t0) / (t1 - t0)
+                red = round(c0[0] + (c1[0] - c0[0]) * f)
+                green = round(c0[1] + (c1[1] - c0[1]) * f)
+                blue = round(c0[2] + (c1[2] - c0[2]) * f)
+                break
+        buf += bytes((red, green, blue, 255))
+    texture = Texture.create(size=(256, 1), colorfmt='rgba')
+    texture.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
+    return texture
 
 
 def beep_interval(delta: float | None) -> float:
@@ -789,6 +869,143 @@ KV = """
         halign: 'center'
         size_hint_y: 0.25
 
+# Original mejorado: fila etiqueta→valor de INFORMACIÓN LTE
+# (etiqueta pequeña gris a la izquierda, valor blanco a la derecha,
+# unidad pequeña gris; línea fina entre filas).
+<ParamRow@BoxLayout>:
+    key: ''
+    value: '—'
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(34)
+    spacing: dp(8)
+    canvas.after:
+        Color:
+            rgba: app.c_grid
+        Rectangle:
+            pos: self.pos
+            size: self.width, dp(1)
+
+    Label:
+        text: root.key
+        font_size: sp(11.5)
+        bold: True
+        color: app.c_sub
+        size_hint_x: None
+        width: dp(64)
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+    Label:
+        text: root.value
+        font_size: sp(15.5)
+        color: app.c_text
+        markup: True
+        text_size: self.size
+        halign: 'right'
+        valign: 'middle'
+# Original mejorado: barra de nivel con degradado rojo→ámbar→verde.
+# El degradado cubre todo el rango (tex_coords recorta lo que se ve),
+# como en la vista previa: un valor bajo solo muestra rojo.
+<MeterBar@Widget>:
+    pct: 0
+    size_hint_y: None
+    height: dp(8)
+    canvas:
+        Color:
+            rgba: app.c_grid
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(4)]
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            texture: app.meter_gradient
+            pos: self.pos
+            size: self.width * root.pct / 100, self.height
+            tex_coords: 0, 0, root.pct / 100, 0, root.pct / 100, 1, 0, 1
+
+# Original mejorado: un segmento de la barra de salud.
+<Seg@Widget>:
+    lit: False
+    lit_color: 0, 0, 0, 1
+    canvas:
+        Color:
+            rgba: self.lit_color if self.lit else app.c_grid
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(3)]
+
+# Original mejorado: una fila de portadora (PCC/SCC) en CARRIER AGGREGATION.
+<CaRow@BoxLayout>:
+    tag: ''
+    band: ''
+    earfcn: ''
+    bw: ''
+    bw_label: ''
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(56)
+    spacing: dp(10)
+    Label:
+        text: root.tag
+        font_size: sp(11)
+        bold: True
+        color: app.c_accent if root.tag == 'PCC' else app.c_sub
+        size_hint_x: None
+        width: dp(44)
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+        canvas.before:
+            Color:
+                rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.tag == 'PCC' else app.c_button2
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(6)]
+    BoxLayout:
+        orientation: 'vertical'
+        Label:
+            text: root.band
+            font_size: sp(14.5)
+            bold: True
+            color: app.c_text
+            size_hint_y: 0.55
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        Label:
+            text: root.earfcn
+            font_size: sp(11.5)
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_x: None
+        width: dp(96)
+        Label:
+            text: root.bw
+            font_size: sp(14.5)
+            color: app.c_text
+            size_hint_y: 0.55
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
+        Label:
+            text: root.bw_label
+            font_size: sp(11.5)
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
+
 <Header@BoxLayout>:
     title: ''
     size_hint_y: None
@@ -932,38 +1149,88 @@ ScreenManager:
         orientation: 'vertical'
         padding: dp(8)
         spacing: dp(6)
+        # Cabecera del operador (como en la vista previa).
         BoxLayout:
             size_hint_y: None
-            height: dp(30)
+            height: dp(58)
+            spacing: dp(8)
+            BoxLayout:
+                orientation: 'vertical'
+                Label:
+                    id: op_name_lbl
+                    text: '—'
+                    font_size: sp(30)
+                    bold: True
+                    color: app.c_text
+                    shorten: True
+                    shorten_from: 'right'
+                    size_hint_y: 0.62
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'bottom'
+                Label:
+                    id: op_sub_lbl
+                    text: ''
+                    font_size: sp(12)
+                    bold: True
+                    color: app.c_sub
+                    size_hint_y: 0.38
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'top'
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_x: None
+                width: dp(110)
+                Label:
+                    id: plmn_lbl
+                    text: ''
+                    font_size: sp(19)
+                    bold: True
+                    color: app.c_text
+                    size_hint_y: 0.55
+                    text_size: self.size
+                    halign: 'right'
+                    valign: 'bottom'
+                BoxLayout:
+                    size_hint_y: 0.45
+                    Widget:
+                    Label:
+                        id: tech_chip_lbl
+                        text: ''
+                        font_size: sp(12)
+                        bold: True
+                        color: app.c_on_accent
+                        size_hint: None, None
+                        size: dp(84), dp(24)
+                        pos_hint: {'center_y': 0.5}
+                        text_size: self.size
+                        halign: 'center'
+                        valign: 'middle'
+                        canvas.before:
+                            Color:
+                                rgba: app.c_accent
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(6)]
+        GreenRule:
+        # Línea de ancla (solo si el router da bandas).
+        BoxLayout:
+            id: anchor_box
+            size_hint_y: None
+            height: dp(30) if root.anchor_visible else 0
+            opacity: 1 if root.anchor_visible else 0
             Label:
-                text: root.lbl_signal
-                font_size: sp(21)
+                id: anchor_lbl
+                text: ''
+                font_size: sp(14)
                 bold: True
                 color: app.c_text
-                size_hint_x: 0.7
-                text_size: self.width, None
+                markup: True
+                text_size: self.size
                 halign: 'left'
                 valign: 'middle'
-            Label:
-                id: updated_lbl
-                text: ''
-                font_size: sp(11)
-                color: app.c_sub
-                size_hint_x: 0.3
-                text_size: self.width, None
-                halign: 'right'
-                valign: 'middle'
-        Label:
-            id: status_lbl
-            text: ''
-            font_size: sp(15)
-            bold: True
-            color: root.status_color
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-        GreenRule:
         ScrollView:
             bar_width: dp(8)
             scroll_type: ['bars', 'content']
@@ -971,22 +1238,328 @@ ScreenManager:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                spacing: dp(12)
-                GridLayout:
-                    id: metrics_grid
-                    cols: 2
-                    rows: 2
-                    spacing: dp(6)
+                spacing: dp(10)
+                SectionHead:
+                    text: root.lbl_info_lte
+                BoxLayout:
                     size_hint_y: None
-                    height: dp(280)
-                    MetricCard:
-                        id: primary_box
-                    MetricCard:
-                        id: secondary_box
-                    MetricCard:
-                        id: small1_box
-                    MetricCard:
-                        id: small2_box
+                    height: dp(170)
+                    spacing: dp(26)
+                    BoxLayout:
+                        orientation: 'vertical'
+                        ParamRow:
+                            id: ci_row
+                            key: 'CI'
+                        ParamRow:
+                            id: enb_row
+                            key: 'ENB:CID'
+                        ParamRow:
+                            id: tac_row
+                            key: 'TAC'
+                        ParamRow:
+                            id: pci_row
+                            key: 'PCI'
+                    BoxLayout:
+                        orientation: 'vertical'
+                        ParamRow:
+                            id: earfcn_row
+                            key: 'EARFCN'
+                        ParamRow:
+                            id: rssi_row
+                            key: 'RSSI'
+                        ParamRow:
+                            id: rsrp_row
+                            key: 'RSRP'
+                        ParamRow:
+                            id: rsrq_row
+                            key: 'RSRQ'
+                        ParamRow:
+                            id: sinr_row
+                            key: 'SINR'
+                SectionHead:
+                    text: root.lbl_signal_level
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: dp(52)
+                    spacing: dp(2)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(22)
+                        Label:
+                            text: 'RSRP'
+                            font_size: sp(11.5)
+                            bold: True
+                            color: app.c_sub
+                            size_hint_x: 0.3
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                        BoxLayout:
+                            size_hint_x: 0.4
+                            spacing: dp(6)
+                            Label:
+                                text: '●'
+                                font_size: sp(11)
+                                color: root.q_rsrp_color
+                                size_hint_x: None
+                                width: dp(12)
+                                text_size: self.size
+                                halign: 'center'
+                                valign: 'middle'
+                            Label:
+                                id: rsrp_q_lbl
+                                text: ''
+                                font_size: sp(12)
+                                bold: True
+                                color: app.c_sub
+                                text_size: self.size
+                                halign: 'left'
+                                valign: 'middle'
+                        Label:
+                            id: rsrp_meter_val
+                            text: ''
+                            font_size: sp(16)
+                            bold: True
+                            color: app.c_text
+                            markup: True
+                            size_hint_x: 0.3
+                            text_size: self.size
+                            halign: 'right'
+                            valign: 'middle'
+                    MeterBar:
+                        id: rsrp_meter
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(15)
+                        Label:
+                            text: '-140'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                        Label:
+                            text: '-110'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'center'
+                            valign: 'middle'
+                        Label:
+                            text: '-80'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'center'
+                            valign: 'middle'
+                        Label:
+                            text: '-44'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'right'
+                            valign: 'middle'
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: dp(52)
+                    spacing: dp(2)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(22)
+                        Label:
+                            text: 'SINR'
+                            font_size: sp(11.5)
+                            bold: True
+                            color: app.c_sub
+                            size_hint_x: 0.3
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                        BoxLayout:
+                            size_hint_x: 0.4
+                            spacing: dp(6)
+                            Label:
+                                text: '●'
+                                font_size: sp(11)
+                                color: root.q_sinr_color
+                                size_hint_x: None
+                                width: dp(12)
+                                text_size: self.size
+                                halign: 'center'
+                                valign: 'middle'
+                            Label:
+                                id: sinr_q_lbl
+                                text: ''
+                                font_size: sp(12)
+                                bold: True
+                                color: app.c_sub
+                                text_size: self.size
+                                halign: 'left'
+                                valign: 'middle'
+                        Label:
+                            id: sinr_meter_val
+                            text: ''
+                            font_size: sp(16)
+                            bold: True
+                            color: app.c_text
+                            markup: True
+                            size_hint_x: 0.3
+                            text_size: self.size
+                            halign: 'right'
+                            valign: 'middle'
+                    MeterBar:
+                        id: sinr_meter
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(15)
+                        Label:
+                            text: '-20'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                        Label:
+                            text: '0'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'center'
+                            valign: 'middle'
+                        Label:
+                            text: '15'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'center'
+                            valign: 'middle'
+                        Label:
+                            text: '30'
+                            font_size: sp(10.5)
+                            color: app.c_sub
+                            size_hint_x: 0.25
+                            text_size: self.size
+                            halign: 'right'
+                            valign: 'middle'
+                SectionHead:
+                    text: root.lbl_health
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(48)
+                    spacing: dp(16)
+                    Label:
+                        id: health_pct_lbl
+                        text: '0%'
+                        font_size: sp(34)
+                        bold: True
+                        color: app.c_text
+                        size_hint_x: None
+                        width: dp(96)
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'middle'
+                    BoxLayout:
+                        orientation: 'vertical'
+                        spacing: dp(6)
+                        Label:
+                            id: health_lbl
+                            text: ''
+                            font_size: sp(12.5)
+                            bold: True
+                            color: app.c_sub
+                            size_hint_y: None
+                            height: dp(20)
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                        BoxLayout:
+                            id: segbar
+                            size_hint_y: None
+                            height: dp(9)
+                            spacing: dp(3)
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                            Seg:
+                BoxLayout:
+                    id: ca_section
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height if root.ca_visible else 0
+                    opacity: 1 if root.ca_visible else 0
+                    spacing: dp(4)
+                    SectionHead:
+                        text: root.lbl_ca
+                    BoxLayout:
+                        id: ca_box
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
+                        padding: dp(6), dp(10)
+                        canvas.before:
+                            Color:
+                                rgba: app.c_card
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(14)]
+                        canvas.after:
+                            Color:
+                                rgba: app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.35
+                            Line:
+                                rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(14)
+                                width: dp(1)
+                        BoxLayout:
+                            id: ca_rows
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: self.minimum_height
+                        Hairline:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(32)
+                            Label:
+                                id: ca_count_lbl
+                                text: ''
+                                font_size: sp(13)
+                                color: app.c_sub
+                                text_size: self.size
+                                halign: 'left'
+                                valign: 'middle'
+                            Label:
+                                id: ca_total_lbl
+                                text: ''
+                                font_size: sp(13)
+                                color: app.c_sub
+                                markup: True
+                                text_size: self.size
+                                halign: 'right'
+                                valign: 'middle'
                 BoxLayout:
                     size_hint_y: None
                     height: dp(42)
@@ -1008,6 +1581,15 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(210)
                 Label:
+                    id: event_lbl
+                    text: ''
+                    font_size: sp(13)
+                    color: app.c_sub
+                    size_hint_y: None
+                    height: self.texture_size[1] if self.text else 0
+                    text_size: self.width, None
+                    halign: 'left'
+                Label:
                     id: advice_lbl
                     text: ''
                     font_size: sp(13)
@@ -1016,227 +1598,6 @@ ScreenManager:
                     height: self.texture_size[1] if self.text else 0
                     text_size: self.width, None
                     halign: 'left'
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(24)
-                    Label:
-                        text: root.lbl_connections
-                        font_size: sp(13)
-                        bold: True
-                        color: app.c_accent
-                        size_hint_x: 0.7
-                        text_size: self.width, None
-                        halign: 'left'
-                        valign: 'middle'
-                    Label:
-                        id: conn_count_lbl
-                        text: '(0)'
-                        font_size: sp(13)
-                        color: app.c_sub
-                        size_hint_x: 0.3
-                        text_size: self.width, None
-                        halign: 'right'
-                        valign: 'middle'
-                SectionCard:
-                    BoxLayout:
-                        size_hint_y: None
-                        height: self.minimum_height
-                        spacing: dp(10)
-                        Label:
-                            text: '●'
-                            font_size: sp(14)
-                            color: app.c_accent
-                            size_hint_x: None
-                            width: dp(16)
-                            size_hint_y: None
-                            height: dp(24)
-                            text_size: self.width, None
-                            halign: 'center'
-                            valign: 'top'
-                        BoxLayout:
-                            orientation: 'vertical'
-                            size_hint_y: None
-                            height: self.minimum_height
-                            spacing: dp(2)
-                            Label:
-                                id: cell_title_lbl
-                                text: '—'
-                                font_size: sp(15)
-                                bold: True
-                                color: app.c_text
-                                size_hint_y: None
-                                height: self.texture_size[1] + dp(2)
-                                text_size: self.width, None
-                                halign: 'left'
-                            Label:
-                                id: tower_lbl
-                                text: '—'
-                                font_size: sp(13)
-                                color: app.c_sub
-                                markup: True
-                                size_hint_y: None
-                                height: self.texture_size[1] + dp(2)
-                                text_size: self.width, None
-                                halign: 'left'
-                            Label:
-                                id: cell_extra_lbl
-                                text: ''
-                                font_size: sp(13)
-                                color: app.c_sub
-                                size_hint_y: None
-                                height: self.texture_size[1] if self.text else 0
-                                text_size: self.width, None
-                                halign: 'left'
-                    Label:
-                        id: event_lbl
-                        text: ''
-                        font_size: sp(13)
-                        color: app.c_sub
-                        size_hint_y: None
-                        height: self.texture_size[1] if self.text else 0
-                        text_size: self.width, None
-                        halign: 'left'
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(24)
-                    Label:
-                        text: root.lbl_radio_tools
-                        font_size: sp(13)
-                        bold: True
-                        color: app.c_accent
-                        size_hint_x: 0.7
-                        text_size: self.width, None
-                        halign: 'left'
-                        valign: 'middle'
-                    Label:
-                        text: 'EARFCN'
-                        font_size: sp(13)
-                        color: app.c_sub
-                        size_hint_x: 0.3
-                        text_size: self.width, None
-                        halign: 'right'
-                        valign: 'middle'
-                SectionCard:
-                    BoxLayout:
-                        size_hint_y: None
-                        height: dp(56)
-                        spacing: dp(10)
-                        BoxLayout:
-                            orientation: 'vertical'
-                            size_hint_y: None
-                            height: self.minimum_height
-                            spacing: dp(2)
-                            Label:
-                                text: root.lbl_bandlock
-                                font_size: sp(15)
-                                bold: True
-                                color: app.c_text
-                                size_hint_y: None
-                                height: self.texture_size[1] + dp(2)
-                                text_size: self.width, None
-                                halign: 'left'
-                            Label:
-                                text: root.lbl_bandlock_hint
-                                font_size: sp(13)
-                                color: app.c_sub
-                                size_hint_y: None
-                                height: self.texture_size[1] + dp(2)
-                                text_size: self.width, None
-                                halign: 'left'
-                        FlatButton:
-                            text: root.lbl_open
-                            size_hint_x: None
-                            width: dp(90)
-                            size_hint_y: None
-                            height: dp(40)
-                            on_release: app.go('tools')
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(24)
-                    Label:
-                        text: root.lbl_network_details
-                        font_size: sp(13)
-                        bold: True
-                        color: app.c_accent
-                        size_hint_x: 0.7
-                        text_size: self.width, None
-                        halign: 'left'
-                        valign: 'middle'
-                    Label:
-                        id: net_head_lbl
-                        text: ''
-                        font_size: sp(13)
-                        color: app.c_sub
-                        size_hint_x: 0.3
-                        text_size: self.width, None
-                        halign: 'right'
-                        valign: 'middle'
-                SectionCard:
-                    GridLayout:
-                        cols: 2
-                        spacing: dp(4)
-                        size_hint_y: None
-                        height: self.minimum_height
-                        Label:
-                            text: root.lbl_operator
-                            font_size: sp(14)
-                            color: app.c_sub
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'left'
-                            valign: 'middle'
-                        Label:
-                            id: op_val_lbl
-                            text: '—'
-                            font_size: sp(14)
-                            bold: True
-                            color: app.c_text
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'right'
-                            valign: 'middle'
-                        Label:
-                            text: root.lbl_network
-                            font_size: sp(14)
-                            color: app.c_sub
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'left'
-                            valign: 'middle'
-                        Label:
-                            id: net_val_lbl
-                            text: '—'
-                            font_size: sp(14)
-                            bold: True
-                            color: app.c_text
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'right'
-                            valign: 'middle'
-                        Label:
-                            text: root.lbl_network_type
-                            font_size: sp(14)
-                            color: app.c_sub
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'left'
-                            valign: 'middle'
-                        Label:
-                            id: nettype_val_lbl
-                            text: '—'
-                            font_size: sp(14)
-                            bold: True
-                            color: app.c_text
-                            size_hint_y: None
-                            height: dp(26)
-                            text_size: self.width, None
-                            halign: 'right'
-                            valign: 'middle'
         BoxLayout:
             size_hint_y: None
             height: dp(56)
@@ -1247,6 +1608,7 @@ ScreenManager:
             FlatButton:
                 text: root.lbl_menu
                 on_release: app.open_menu()
+
 <InfoScreen>:
     name: 'info'
     canvas.before:
@@ -1494,19 +1856,17 @@ class MonitorScreen(Screen):
     lbl_fullscreen = StringProperty("")
     lbl_peaks = StringProperty("")
     lbl_menu = StringProperty("")
-    lbl_signal = StringProperty("")
-    lbl_connections = StringProperty("")
-    lbl_radio_tools = StringProperty("")
-    lbl_open = StringProperty("")
-    lbl_network_details = StringProperty("")
-    lbl_operator = StringProperty("")
-    lbl_network = StringProperty("")
-    lbl_network_type = StringProperty("")
-    lbl_bandlock = StringProperty("")
-    lbl_bandlock_hint = StringProperty("")
+    lbl_info_lte = StringProperty("")
+    lbl_signal_level = StringProperty("")
+    lbl_health = StringProperty("")
+    lbl_ca = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
     status_color = ListProperty([0.05, 0.65, 0.39, 1])
     advice_color = ListProperty([0.92, 0.71, 0.03, 1])
+    q_rsrp_color = ListProperty([0.5, 0.5, 0.5, 1])
+    q_sinr_color = ListProperty([0.5, 0.5, 0.5, 1])
+    anchor_visible = BooleanProperty(False)
+    ca_visible = BooleanProperty(False)
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
@@ -1515,17 +1875,10 @@ class MonitorScreen(Screen):
         self.lbl_fullscreen = t("Во весь экран")
         self.lbl_peaks = t("⟲ Пики")
         self.lbl_menu = t("☰ Меню")
-        self.lbl_signal = t("СИГНАЛ")
-        self.lbl_connections = t("АКТИВНЫЕ СОЕДИНЕНИЯ")
-        self.lbl_radio_tools = t("ИНСТРУМЕНТЫ РАДИО")
-        self.lbl_open = t("ОТКРЫТЬ")
-        self.lbl_network_details = t("ДЕТАЛИ СЕТИ")
-        self.lbl_operator = t("Оператор (PLMN)")
-        self.lbl_network = t("Сеть")
-        self.lbl_network_type = t("Тип сети")
-        self.lbl_bandlock = t("Фиксация частот (Band Lock)")
-        self.lbl_bandlock_hint = t(
-            "Фиксирует LTE-бэнды роутера для улучшения сигнала.")
+        self.lbl_info_lte = t("ИНФОРМАЦИЯ LTE")
+        self.lbl_signal_level = t("УРОВЕНЬ СИГНАЛА")
+        self.lbl_health = t("ЗДОРОВЬЕ СИГНАЛА")
+        self.lbl_ca = t("АГРЕГАЦИЯ НЕСУЩИХ")
 
 
 class TopScrollScreen(Screen):
@@ -1633,8 +1986,10 @@ class Hua4GMonApp(App):
     c_sub = ListProperty(THEMES['dark']['c_sub'])
     c_accent = ListProperty(THEMES['dark']['c_accent'])
     c_button2 = ListProperty(THEMES['dark']['c_button2'])
+    c_grid = ListProperty(THEMES['dark']['c_grid'])
     c_btn_border = ListProperty(THEMES['dark']['c_btn_border'])
     c_on_accent = ListProperty(THEMES['dark']['c_on_accent'])
+    meter_gradient = ObjectProperty(None)
     sound_on = BooleanProperty(False)
     lbl_back = StringProperty("")
 
@@ -1668,6 +2023,8 @@ class Hua4GMonApp(App):
         self._beep_ev: Any = None
         self.beeper = ToneBeeper()
         self.lbl_back = t("← Назад")
+        self.meter_gradient = _meter_gradient_texture()
+        self._ca_signature: Any = None
         self.sm: ScreenManager = Builder.load_string(KV)
         Clock.schedule_interval(self._tick, 0.5)
         return self.sm
@@ -1903,18 +2260,18 @@ class Hua4GMonApp(App):
 
     def _render_link_state(self, detail: str = "") -> None:
         scr = self.sm.get_screen('monitor')
-        lbl = scr.ids.get('status_lbl')
-        if lbl is None:
-            return
         sun = self.theme_name == 'sun'
+        lbl = scr.ids.get('status_lbl')
         if self.link == 'reconnecting':
-            lbl.text = t("Нет связи с роутером — переподключаюсь…")
+            if lbl is not None:
+                lbl.text = t("Нет связи с роутером — переподключаюсь…")
             scr.status_color = hex_to_rgba('#EAB308', sun)
             ev = scr.ids.get('event_lbl')
             if detail and ev is not None:
                 ev.text = detail
         elif self.demo_modem is not None:
-            lbl.text = t("Тестовый режим")
+            if lbl is not None:
+                lbl.text = t("Тестовый режим")
             scr.status_color = hex_to_rgba('#EAB308', sun)
 
     # ---------- данные ----------
@@ -1963,56 +2320,156 @@ class Hua4GMonApp(App):
                 lbl.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                     s=self.state.age(now) or 0)
                 scr.status_color = hex_to_rgba('#EF4444', self.theme_name == 'sun')
+            else:
+                # La pantalla Señal nueva no tiene línea de estado: el
+                # aviso de datos obsoletos sale en la línea de eventos.
+                ev = scr.ids.get('event_lbl')
+                if ev is not None:
+                    ev.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
+                        s=self.state.age(now) or 0)
             self.refresh_graph(stale=True)
 
-    def _metric_card(self, card: Any, param: str) -> None:
-        val = self.state.current(param)
-        label, color, pct = evaluate_signal(param.replace('nr_', ''), val)
-        card.m_name = PARAM_TITLES.get(param, param.upper())
-        card.m_value = fmt_num(val)
-        card.m_status = t(label)
-        card.m_color = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
-        card.m_pct = pct
-        peak, delta = self.state.peaks.get(param), self.state.delta_to_peak(param)
-        card.m_peak = "" if peak is None or delta is None else \
-            t("Пик: {v} (Δ {d})").format(v=fmt_num(peak), d=f"{delta:+g}")
+    def _param_value(self, val: float | None, unit: str) -> str:
+        """Valor con unidad pequeña gris ('−89 dBm'), o '—' si falta."""
+        if val is None:
+            return "—"
+        gray = '#{:02x}{:02x}{:02x}'.format(
+            *(int(v * 255) for v in self.c_sub[:3]))
+        return (f"{fmt_num(val)}[size={int(dp(11))}]"
+                f"[color={gray}] {unit}[/color][/size]")
 
-    def _layout_params(self) -> list[str]:
-        """Крупно — выбранная метрика, рядом RSRP (или SINR), мелко — остальные."""
-        primary = self.state.trend_param
-        secondary = 'rsrp' if primary not in ('rsrp', 'nr_rsrp') else 'sinr'
-        rest = [p for p in LTE_PARAMS if p not in (primary, secondary)][:2]
-        return [primary, secondary, *rest]
+    def _meter(self, ids: Any, param: str, val: float | None,
+               lo: float, hi: float) -> None:
+        """Barra de NIVEL DE SEÑAL: palabra de calidad, color y relleno.
+
+        El relleno es la posición del valor en su rango (-140..-44 dBm
+        para RSRP, -20..30 dB para SINR); la palabra y el color salen de
+        evaluate_signal, sin cambiar cálculos.
+        """
+        label, color, _pct = evaluate_signal(param, val)
+        pct = 0.0 if val is None else max(0.0, min(100.0, (val - lo) / (hi - lo) * 100))
+        ids[f'{param}_meter'].pct = pct
+        ids[f'{param}_q_lbl'].text = t(label)
+        rgba = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
+        if param == 'rsrp':
+            self.sm.get_screen('monitor').q_rsrp_color = rgba
+        else:
+            self.sm.get_screen('monitor').q_sinr_color = rgba
+        ids[f'{param}_meter_val'].text = self._param_value(val, unit_of(param))
+
+    def _anchor_text(self, snap: Snapshot) -> str:
+        """'LTE 1800+2100' — frecuencias nominales de los bándos activos.
+
+        Vacío si el router no da bándos: la línea de ancla no se muestra.
+        """
+        bands = snap.bands or tuple(c.band for c in snap.lte_carriers)
+        names = [name for name in (_band_freq_name(b) for b in bands) if name]
+        return f"LTE {'+'.join(names)}" if names else ""
+
+    def _render_ca(self, ids: Any, snap: Snapshot) -> None:
+        """Sección CARRIER AGGREGATION: una fila por portadora real.
+
+        Sin portadoras (snap.lte_carriers vacío) la sección no se muestra:
+        no se inventa. Las filas se reconstruyen solo si cambian las
+        portadoras o el idioma.
+        """
+        from kivy.factory import Factory
+        scr = self.sm.get_screen('monitor')
+        carriers = snap.lte_carriers
+        scr.ca_visible = bool(carriers)
+        if not carriers:
+            self._ca_signature = None
+            return
+        sig = (current_language(),
+               tuple((c.band, c.earfcn, c.bandwidth) for c in carriers))
+        if sig == self._ca_signature:
+            return
+        self._ca_signature = sig
+        rows = ids.ca_rows
+        rows.clear_widgets()
+        total = 0.0
+        for i, c in enumerate(carriers):
+            freq = _band_freq_name(c.band)
+            band = f"B{c.band}" + (f" · {freq} {t('МГц')}" if freq else "")
+            # Las propiedades de la regla KV solo existen tras construir
+            # el widget: se asignan después, no como kwargs del constructor.
+            row = Factory.CaRow()
+            row.tag = 'PCC' if i == 0 else 'SCC'
+            row.band = band
+            row.earfcn = f"EARFCN {c.earfcn}"
+            row.bw = f"{c.bandwidth:g} {t('МГц')}"
+            row.bw_label = t("Ширина полосы")
+            rows.add_widget(row)
+            total += c.bandwidth
+        n = len(carriers)
+        ids.ca_count_lbl.text = (t("1 несущая активна") if n == 1
+                                 else t("{n} несущих активны").format(n=n))
+        ids.ca_total_lbl.text = f"{t('Всего')} [b]{total:g} {t('МГц')}[/b]"
 
     def _render(self, snap: Snapshot) -> None:
+        # Pestaña Señal estilo «Original mejorado»: cabecera del operador,
+        # INFORMACIÓN LTE en dos columnas, barras de NIVEL DE SEÑAL,
+        # SALUD DE SEÑAL con segmentos y CARRIER AGGREGATION. Todos los
+        # datos salen del Snapshot; lo que falta se muestra como '—'.
         snap = snap.display()
         scr = self.sm.get_screen('monitor')
         ids = scr.ids
         if not ids:
             return
         sun = self.theme_name == 'sun'
+        # --- Cabecera del operador ---
+        if snap.registered:
+            operator = snap.operator or t("Оператор неизвестен")
+            ids.op_name_lbl.text = operator
+            ids.plmn_lbl.text = _format_plmn(snap.plmn)
+            ids.tech_chip_lbl.text = _tech_chip(snap.rat)
+            ids.tech_chip_lbl.opacity = 1 if snap.rat else 0
+            ids.op_sub_lbl.text = _operator_sub(snap.plmn)
+        else:
+            ids.op_name_lbl.text = t(snap.network_message)
+            ids.plmn_lbl.text = "—"
+            ids.tech_chip_lbl.text = ""
+            ids.tech_chip_lbl.opacity = 0
+            ids.op_sub_lbl.text = t("Оператор")
+        # --- Línea de ancla ---
+        anchor = self._anchor_text(snap)
+        scr.anchor_visible = bool(anchor)
+        if anchor:
+            accent = '#{:02x}{:02x}{:02x}'.format(
+                *(int(v * 255) for v in self.c_accent[:3]))
+            ids.anchor_lbl.text = (
+                f"{t('Якорь')} [b][color={accent}]{anchor}[/color][/b]")
+        # --- INFORMACIÓN LTE ---
+        ids.ci_row.value = _dash_num(snap.cell_id)
+        ids.enb_row.value = ("—" if snap.enodeb is None or snap.sector is None
+                             else f"{fmt_num(snap.enodeb)}:{fmt_num(snap.sector)}")
+        ids.tac_row.value = snap.tac or "—"
+        ids.pci_row.value = _dash_num(snap.pci)
+        ids.earfcn_row.value = _dash_num(snap.earfcn)
+        ids.rssi_row.value = self._param_value(snap.rssi, "dBm")
+        ids.rsrp_row.value = self._param_value(snap.rsrp, "dBm")
+        ids.rsrq_row.value = self._param_value(snap.rsrq, "dB")
+        ids.sinr_row.value = self._param_value(snap.sinr, "dB")
+        # --- NIVEL DE SEÑAL ---
+        self._meter(ids, 'rsrp', snap.rsrp, -140.0, -44.0)
+        self._meter(ids, 'sinr', snap.sinr, -20.0, 30.0)
+        # --- SALUD DE SEÑAL ---
         score, summary, color = calculate_overall_health(snap.rsrp, snap.sinr)
         if not snap.registered:
             score, summary, color = 0, snap.network_message, 'gray'
-        health = ('LTE · ' if snap.registered else '') + t(summary).format(pct=score)
-        if self.demo_modem is not None:
-            health = t("ДЕМО · азимут {a}").format(
-                a=demo_angle_hint(self.demo_modem)) + " · " + health
-        ids.status_lbl.text = health
-        scr.status_color = hex_to_rgba(skin_hex(color), sun)
-        tower = self._tower_summary(snap)
-        if "CA " in tower:
-            # El tramo de agregación de portadoras resalta en verde.
-            accent = '#{:02x}{:02x}{:02x}'.format(
-                *(int(v * 255) for v in self.c_accent[:3]))
-            head, _, tail = tower.partition("CA ")
-            ca, sep, rest = tail.partition(" · ")
-            tower = f"{head}[color={accent}][b]CA {ca}[/b][/color]{sep}{rest}"
-        ids.tower_lbl.text = tower
-        cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
-        for card, param in zip(cards, self._layout_params(), strict=True):
-            self._metric_card(card, param)
-
+        ids.health_pct_lbl.text = f"{score}%"
+        # El resumen trae ' ({pct}%)' al final; el porcentaje ya va en grande.
+        ids.health_lbl.text = (t(summary).split(" ({")[0] if snap.registered
+                               else t(summary))
+        segs = list(reversed(ids.segbar.children))
+        lit = round(score / 100 * len(segs))
+        seg_color = hex_to_rgba(skin_hex(color), sun)
+        for i, seg in enumerate(segs):
+            seg.lit = i < lit
+            seg.lit_color = seg_color
+        # --- CARRIER AGGREGATION ---
+        self._render_ca(ids, snap)
+        # --- Consejos y gráfico ---
         mimo = mimo_status(snap.cqi0, snap.cqi1)
         up = uplink_status(snap.pusch_dbm)
         tips = advice(rsrp=snap.rsrp, sinr=snap.sinr, rsrq=snap.rsrq,
@@ -2023,60 +2480,9 @@ class Hua4GMonApp(App):
             tips.insert(0, snap.network_message)
         ids.advice_lbl.text = "\n".join("• " + t(tip) for tip in tips[:2])
         scr.advice_color = hex_to_rgba('#EAB308', sun)
-        nd = t("Нет данных")
-        ids.updated_lbl.text = t("ОБНОВЛЕНО ТОЛЬКО ЧТО") if snap.registered else ""
-        ids.conn_count_lbl.text = "(1)" if snap.registered else "(0)"
-        band_short = self._band_short(snap)
-        if snap.registered:
-            operator = snap.operator or t("Неизвестный оператор")
-            ids.cell_title_lbl.text = (f"{operator} · {band_short}"
-                                      if band_short != "—" else operator)
-            ids.cell_extra_lbl.text = (
-                f"eNb:CID {fmt_num(snap.enodeb)}:{fmt_num(snap.sector)}"
-                f" · TAC {snap.tac or '—'}")
-            ids.op_val_lbl.text = (f"{operator} ({snap.plmn})"
-                                   if snap.plmn else operator)
-            rat_label = t(RAT_LABELS.get(snap.rat, snap.rat)) if snap.rat else nd
-            ids.net_val_lbl.text = rat_label
-            ids.nettype_val_lbl.text = snap.rat.upper() if snap.rat else nd
-            ids.net_head_lbl.text = (f"{operator} · {rat_label}"
-                                     if snap.rat else operator)
-        else:
-            ids.cell_title_lbl.text = t(snap.network_message)
-            ids.cell_extra_lbl.text = ""
-            ids.op_val_lbl.text = nd
-            ids.net_val_lbl.text = nd
-            ids.nettype_val_lbl.text = nd
-            ids.net_head_lbl.text = ""
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
-
-    def _band_short(self, snap: Snapshot) -> str:
-        """Banda corta para la cabecera: 'LTE 1800' o 'B3'."""
-        if snap.freq_mhz:
-            return f"LTE {snap.freq_mhz:g} {t('МГц')}"
-        if snap.bands:
-            return f"B{snap.bands[0]}"
-        return snap.band_label if snap.band_label not in ("", "-") else "—"
-
-    def _tower_summary(self, snap: Snapshot) -> str:
-        snap = snap.display()
-        parts = [] if snap.registered and snap.connection == 901 and snap.data_enabled is not False else [t(snap.network_message)]
-        if len(snap.lte_carriers) > 1:
-            parts.append(snap.band_label)
-        elif snap.bands:
-            freq = f" · {snap.freq_mhz:g} {t('МГц')}" if snap.freq_mhz else ""
-            parts.append(f"B{snap.bands[0]}{freq}")
-            if len(snap.bands) > 1:
-                parts.append("CA " + "+".join(f"B{b}" for b in snap.bands[1:]))
-        if snap.cell_id is not None:
-            parts.append(f"Cell ID {snap.cell_id}")
-        if snap.pci is not None:
-            parts.append(f"PCI {snap.pci}")
-        if snap.rat:
-            parts.append(t(RAT_LABELS.get(snap.rat, snap.rat)))
-        return " · ".join(parts) if parts else "—"
 
     def set_graph_param(self, param: str) -> None:
         self.state.set_trend_param(param)

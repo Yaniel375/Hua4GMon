@@ -74,22 +74,45 @@ def test_invalid_ip_shows_error(app):
 
 
 def test_monitor_shows_live_data(app):
+    """La pestaña Señal nueva muestra los datos reales del demo."""
     ensure_online(app)
-    ids = app.sm.get_screen('monitor').ids
+    scr = app.sm.get_screen('monitor')
+    ids = scr.ids
     assert app.sm.current == 'monitor'
-    assert "PCI" in ids.tower_lbl.text
-    assert ids.primary_box.m_name == "SINR" and ids.primary_box.m_value != "-"
-    assert ids.primary_box.m_peak.startswith("Пик:")
-    assert "ДЕМО" in ids.status_lbl.text
+    # Cabecera del operador.
+    assert ids.op_name_lbl.text == 'MegaFon'
+    assert ids.plmn_lbl.text == '250 02'
+    assert ids.op_sub_lbl.text == 'ОПЕРАТОР · RU'
+    import android_main
+    assert ids.tech_chip_lbl.text == android_main._tech_chip(app.state.last.rat)
+    assert scr.anchor_visible and 'LTE 1800' in ids.anchor_lbl.text
+    # INFORMACIÓN LTE con los datos del demo.
+    assert ids.ci_row.value == '46111500'
+    assert ids.enb_row.value == '180123:12'
+    assert ids.tac_row.value == '12345'
+    assert ids.pci_row.value == '287'
+    assert ids.earfcn_row.value == '1300'
+    assert ids.rsrp_row.value != '—' and 'dBm' in ids.rsrp_row.value
+    # NIVEL DE SEÑAL y SALUD DE SEÑAL con valores reales.
+    assert ids.rsrp_q_lbl.text and ids.sinr_q_lbl.text
+    assert 0 < ids.rsrp_meter.pct <= 100
+    assert 0 < ids.sinr_meter.pct <= 100
+    assert ids.health_pct_lbl.text.endswith('%')
+    assert ids.health_lbl.text
+    # El demo no entrega portadoras: la sección CA no se inventa.
+    assert not scr.ca_visible
 
 
-def test_graph_param_reorders_cards(app):
+def test_graph_param_changes_graph(app):
+    """El selector de parámetro cambia el gráfico de tendencia."""
     ensure_online(app)
     ids = app.sm.get_screen('monitor').ids
     app.set_graph_param('rsrp')
-    assert [ids.primary_box.m_name, ids.secondary_box.m_name] == ["RSRP", "SINR"]
+    assert app.state.trend_param == 'rsrp'
+    assert ids.signal_graph._param == 'rsrp'
     app.set_graph_param('sinr')
-    assert ids.primary_box.m_name == "SINR"
+    assert app.state.trend_param == 'sinr'
+    assert ids.signal_graph._param == 'sinr'
 
 
 def test_signal_screen_has_no_sound_button(app):
@@ -115,50 +138,84 @@ def test_signal_screen_has_no_spectrum(app):
     assert 'spectrum_graph' not in ids and 'spec_info_lbl' not in ids
     texts = [w.text for w in scr.walk() if isinstance(w, Button)]
     assert not any('СПЕКТР' in text or 'ESPECTRO' in text for text in texts)
-    # El contenido de SEÑAL se ve directo, sin pestañas.
-    assert ids.metrics_grid.opacity == 1
-    assert 'MegaFon' in ids.cell_title_lbl.text
-    assert 'PCI' in ids.tower_lbl.text
-    assert '12345' in ids.cell_extra_lbl.text
-    assert 'MegaFon' in ids.op_val_lbl.text and '25002' in ids.op_val_lbl.text
-    assert ids.net_val_lbl.text not in ('', '-')
-    assert ids.nettype_val_lbl.text not in ('', '-')
-    assert 'ОБНОВЛЕНО' in ids.updated_lbl.text
-    assert ids.conn_count_lbl.text == '(1)'
+    # El contenido nuevo se ve directo, sin pestañas.
+    assert 'MegaFon' in ids.op_name_lbl.text
+    assert ids.ci_row.value == '46111500'
+    assert ids.tac_row.value == '12345'
+    assert scr.lbl_info_lte == 'ИНФОРМАЦИЯ LTE'
+    assert scr.lbl_signal_level == 'УРОВЕНЬ СИГНАЛА'
+    assert scr.lbl_health == 'ЗДОРОВЬЕ СИГНАЛА'
+    assert scr.lbl_ca == 'АГРЕГАЦИЯ НЕСУЩИХ'
 
 
-def test_signal_metric_bar_uses_quality_pct(app):
-    """Cada tarjeta muestra una barra con el porcentaje de calidad existente."""
-    from kivy.metrics import dp
-    from kivy.uix.widget import Widget
-
+def test_signal_meter_bars_use_range_position(app):
+    """Cada barra de NIVEL DE SEÑAL marca la posición del valor en su
+    rango, con la palabra de calidad existente (sin cambiar cálculos)."""
     from core.signal_analysis import evaluate_signal
     ensure_online(app)
     ids = app.sm.get_screen('monitor').ids
-    cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
-    for card, param in zip(cards, app._layout_params(), strict=True):
-        _label, _color, pct = evaluate_signal(param.replace('nr_', ''),
-                                              app.state.current(param))
-        assert card.m_pct == pct
-        assert 0 <= card.m_pct <= 100
-        assert any(isinstance(child, Widget) and child.height == dp(5)
-                   for child in card.children)
-
-
-def test_signal_ca_segment_highlighted(app):
-    """El tramo CA de la línea de la torre resalta en verde con markup."""
-    ensure_online(app)
+    # Snapshot fijo: el demo cambia con el tiempo y la barra se dibuja
+    # con el valor del último render, no con el valor actual.
     snap = core.Snapshot(registration='registered', connection=901,
-                         data_enabled=True, rsrp=-86, sinr=13, bands=(3, 1),
-                         freq_mhz=1815, cell_id=46111500, pci=287,
-                         enodeb=180123, sector=12, tac='12345',
-                         operator='MegaFon', plmn='25002', rat='lte',
-                         earfcn=1300, dl_bandwidth='20MHz')
+                         data_enabled=True, rsrp=-89, sinr=20, rsrq=-10,
+                         rssi=-60, pci=287, cell_id=46111500, enodeb=180123,
+                         sector=12, tac='12345', operator='MegaFon',
+                         plmn='25002', rat='lte', earfcn=1300, bands=(3,))
     app._render(snap)
-    text = app.sm.get_screen('monitor').ids.tower_lbl.text
-    assert 'CA B1' in text
-    assert '[color=' in text and '[/color]' in text
-    assert 'PCI' in text
+    for param, lo, hi, val in (('rsrp', -140.0, -44.0, -89),
+                               ('sinr', -20.0, 30.0, 20)):
+        label, _color, _pct = evaluate_signal(param, val)
+        assert ids[f'{param}_meter'].pct == pytest.approx((val - lo) / (hi - lo) * 100)
+        assert ids[f'{param}_q_lbl'].text == core.t(label)
+        assert ids[f'{param}_meter_val'].text != '—'
+
+
+def test_signal_ca_section_lists_real_carriers(app):
+    """CARRIER AGGREGATION lista las portadoras reales del Snapshot:
+    dos portadoras (PCC/SCC con total), una sola (solo PCC) y ninguna
+    (la sección no se muestra, no se inventa)."""
+    from core.carriers import LTECarrier
+    ensure_online(app)
+    scr = app.sm.get_screen('monitor')
+    ids = scr.ids
+
+    def render(**kw):
+        snap = core.Snapshot(registration='registered', connection=901,
+                             data_enabled=True, rsrp=-86, sinr=13, bands=(3, 1),
+                             freq_mhz=1815, cell_id=46111500, pci=287,
+                             enodeb=180123, sector=12, tac='12345',
+                             operator='MegaFon', plmn='25002', rat='lte_ca',
+                             earfcn=1300, dl_bandwidth='20MHz', **kw)
+        app._render(snap)
+        return snap
+
+    render(lte_carriers=(LTECarrier(3, 1300, 20.0), LTECarrier(1, 300, 20.0)))
+    assert scr.ca_visible
+    rows = list(ids.ca_rows.children)
+    assert {row.tag for row in rows} == {'PCC', 'SCC'}
+    assert any('B3' in row.band and '1800' in row.band for row in rows)
+    assert any('B1' in row.band and '2100' in row.band for row in rows)
+    assert ids.ca_count_lbl.text == '2 несущих активны'
+    assert '40' in ids.ca_total_lbl.text
+    render(lte_carriers=(LTECarrier(3, 1300, 20.0),))
+    assert scr.ca_visible
+    assert [row.tag for row in ids.ca_rows.children] == ['PCC']
+    assert ids.ca_count_lbl.text == '1 несущая активна'
+    assert '20' in ids.ca_total_lbl.text
+    render(lte_carriers=())
+    assert not scr.ca_visible
+
+
+def test_signal_health_segments_light_up(app):
+    """La barra de SALUD DE SEÑAL enciende tantos segmentos como el
+    porcentaje de salud existente."""
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    segs = list(reversed(ids.segbar.children))
+    assert len(segs) == 20
+    score = int(ids.health_pct_lbl.text.rstrip('%'))
+    lit = sum(1 for seg in segs if seg.lit)
+    assert lit == round(score / 100 * 20)
 
 
 def test_signal_graph_fill_mesh_has_no_vcolor(app):
@@ -283,7 +340,10 @@ def test_english_texts(app):
         app.refresh_all_texts()
         scr = app.sm.get_screen('monitor')
         assert scr.lbl_menu == "☰ Menu"
-        assert pump(lambda: "DEMO" in scr.ids.status_lbl.text)
+        assert scr.lbl_info_lte == "LTE INFORMATION"
+        assert scr.lbl_signal_level == "SIGNAL LEVEL"
+        assert scr.lbl_health == "SIGNAL HEALTH"
+        assert scr.ids.op_sub_lbl.text == "OPERATOR · RU"
     finally:
         core.set_language("ru")
         app.refresh_all_texts()
@@ -450,18 +510,17 @@ def test_new_session_has_no_demo_settings(app, monkeypatch):
     assert app._tools().antenna_text == core.t('Не прочитано')
     assert app._tools().net_msg == ''
     assert app.state.last is None
-    assert app.sm.get_screen('monitor').ids.primary_box.m_value == '-'
+    assert app.sm.get_screen('monitor').ids.ci_row.value == '—'
     app.disconnect()
 
 
-def test_equal_metric_grid_and_centered_actions(app):
+def test_signal_info_columns_equal_and_centered_actions(app):
     ensure_online(app)
     ids = app.sm.get_screen('monitor').ids
     pump(lambda: False, 0.2)
-    cards = [ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box]
-    assert ids.metrics_grid.cols == 2 and ids.metrics_grid.rows == 2
-    assert all(card.size == cards[0].size for card in cards)
-    assert all(card.value_size == cards[0].value_size for card in cards)
+    # Las dos columnas de INFORMACIÓN LTE tienen el mismo ancho.
+    assert ids.ci_row.parent.width == pytest.approx(ids.earfcn_row.parent.width)
+    assert ids.rsrp_meter and ids.sinr_meter
     app.go('tools')
     assert pump(lambda: not app.sm.transition.is_active)
     from kivy.factory import Factory
@@ -539,9 +598,9 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
     peak = app.state.peaks['rsrp']
     app._on_snapshot(bad)
     monitor = app.sm.get_screen('monitor')
-    assert 'Нет регистрации' in monitor.ids.status_lbl.text
-    assert all(card.m_value == '-' for card in (monitor.ids.primary_box,
-               monitor.ids.secondary_box, monitor.ids.small1_box, monitor.ids.small2_box))
+    assert 'Нет регистрации' in monitor.ids.op_name_lbl.text
+    assert monitor.ids.ci_row.value == '—'
+    assert monitor.ids.rsrp_row.value == '—'
     assert app.state.peaks['rsrp'] == peak
     assert 'Мотив' in app._survey_text.text
     copied = []
@@ -582,15 +641,24 @@ def test_metric_captions_fit_small_cards(app, size, language):
 
 
 def test_network_summary_only_warns_on_problem(app):
+    """La pantalla Señal solo avisa cuando hay un problema de red: el
+    ancla muestra las bandas sin advertencias y los avisos salen en la
+    línea de consejos o en el nombre del operador."""
     from dataclasses import replace
 
     from core.models import Snapshot
     snap = Snapshot(registration='registered', connection=901, data_enabled=True,
                     bands=(3,), band_label='B3', pci=114)
-    assert 'В сети' not in app._tower_summary(snap)
-    assert 'B3' in app._tower_summary(snap)
-    assert 'нет мобильного' in app._tower_summary(replace(snap, connection=902))
-    assert 'Нет регистрации' in app._tower_summary(replace(snap, registration='unregistered'))
+    assert app._anchor_text(snap) == 'LTE 1800'
+    assert 'В сети' not in app._anchor_text(snap)
+    app._render(snap)
+    ids = app.sm.get_screen('monitor').ids
+    assert 'нет мобильного' not in ids.advice_lbl.text
+    assert 'Нет регистрации' not in ids.op_name_lbl.text
+    app._render(replace(snap, connection=902))
+    assert 'нет мобильного' in ids.advice_lbl.text
+    app._render(replace(snap, registration='unregistered'))
+    assert 'Нет регистрации' in ids.op_name_lbl.text
 
 
 def test_original_mejorado_style_everywhere(app):

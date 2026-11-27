@@ -598,8 +598,6 @@ EN: dict[str, str] = {
     # --- Android (android_main.py) ---
     "В белых списках:":
         "Whitelisted:",
-    "ДЕМО · азимут {a}":
-        "DEMO · azimuth {a}",
     "Найти":
         "Find",
     "Нейтральные:":
@@ -714,22 +712,14 @@ EN: dict[str, str] = {
          "otherwise the test measures a different link. Applies to Russia only."),
     "⟲ Пики":
         "⟲ Peaks",
-    "СИГНАЛ":
-        "SIGNAL",
-    "ОБНОВЛЕНО ТОЛЬКО ЧТО":
-        "UPDATED JUST NOW",
-    "АКТИВНЫЕ СОЕДИНЕНИЯ":
-        "ACTIVE CONNECTIONS",
-    "ИНСТРУМЕНТЫ РАДИО":
-        "RADIO TOOLS",
-    "ОТКРЫТЬ":
-        "OPEN",
-    "ДЕТАЛИ СЕТИ":
-        "NETWORK DETAILS",
-    "Тип сети":
-        "Network type",
-    "Фиксирует LTE-бэнды роутера для улучшения сигнала.":
-        "Locks the router LTE bands to improve signal.",
+    "ИНФОРМАЦИЯ LTE":
+        "LTE INFORMATION",
+    "УРОВЕНЬ СИГНАЛА":
+        "SIGNAL LEVEL",
+    "ЗДОРОВЬЕ СИГНАЛА":
+        "SIGNAL HEALTH",
+    "АГРЕГАЦИЯ НЕСУЩИХ":
+        "CARRIER AGGREGATION",
 }
 
 
@@ -774,6 +764,12 @@ EN.update({
     'Ранг MIMO NR': 'NR MIMO rank',
     'Нет подтверждённых данных': 'No confirmed data',
     'Подключение': 'Connection',
+    'Якорь': 'Anchor',
+    'Оператор': 'Operator',
+    'Всего': 'Total',
+    'Ширина полосы': 'Bandwidth',
+    '1 несущая активна': '1 carrier active',
+    '{n} несущих активны': '{n} carriers active',
 })
 
 
@@ -1020,7 +1016,6 @@ ES: dict[str, str] = {
     '🛡 Белые списки (РФ)': '🛡 Listas blancas (RU)',
     '🧾 Сохранить диагностику': '🧾 Guardar diagnóstico',
     'В белых списках:': 'En listas blancas:',
-    'ДЕМО · азимут {a}': 'DEMO · azimut {a}',
     'Найти': 'Buscar',
     'Нейтральные:': 'Neutrales:',
     'Переподключить связь': 'Reconectar enlace',
@@ -1095,14 +1090,16 @@ ES: dict[str, str] = {
     'Ранг MIMO NR': 'Rango MIMO NR',
     'Нет подтверждённых данных': 'Sin datos confirmados',
     'Подключение': 'Conexión',
-    'СИГНАЛ': 'SEÑAL',
-    'ОБНОВЛЕНО ТОЛЬКО ЧТО': 'ACTUALIZADO AHORA MISMO',
-    'АКТИВНЫЕ СОЕДИНЕНИЯ': 'CONEXIONES ACTIVAS',
-    'ИНСТРУМЕНТЫ РАДИО': 'HERRAMIENTAS DE RADIO',
-    'ОТКРЫТЬ': 'ABRIR',
-    'ДЕТАЛИ СЕТИ': 'DETALLES DE RED',
-    'Тип сети': 'Tipo de red',
-    'Фиксирует LTE-бэнды роутера для улучшения сигнала.': 'Fija las bandas LTE del router para mejorar la señal.',
+    'Якорь': 'Ancla',
+    'Оператор': 'Operador',
+    'Всего': 'Total',
+    'Ширина полосы': 'Ancho de banda',
+    '1 несущая активна': '1 portadora activa',
+    '{n} несущих активны': '{n} portadoras activas',
+    'ИНФОРМАЦИЯ LTE': 'INFORMACIÓN LTE',
+    'УРОВЕНЬ СИГНАЛА': 'NIVEL DE SEÑAL',
+    'ЗДОРОВЬЕ СИГНАЛА': 'SALUD DE SEÑAL',
+    'АГРЕГАЦИЯ НЕСУЩИХ': 'CARRIER AGGREGATION',
 }
 
 
