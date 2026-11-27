@@ -148,13 +148,17 @@ def test_sun_theme(app):
     assert app.c_bg == [1, 1, 1, 1]
     app.apply_theme('dark')
     assert app.c_bg[0] < 0.2
+    # Piel NetMonster: fondo casi negro y acento verde de marca.
+    assert app.c_bg == [0.07, 0.08, 0.07, 1]
+    assert app.c_accent == [0.05, 0.65, 0.39, 1]
 
 
 def test_sun_theme_status_colors_readable(app):
     """В «Солнце» цвета статусов читаются на светлой карточке (≥ 4,5:1);
     в тёмной теме остаются исходными."""
     import android_main
-    for color in ('#00b894', '#2ecc71', '#fdcb6e', '#d63031', 'gray', 'orange', '#e68033'):
+    for color in ('#00b894', '#2ecc71', '#fdcb6e', '#d63031', 'gray', 'orange', '#e68033',
+                  '#0CA663', '#EAB308', '#EF4444'):
         r, g, b, _ = android_main.hex_to_rgba(color, sun=True)
         sun_hex = "#{:02x}{:02x}{:02x}".format(*(round(c * 255) for c in (r, g, b)))
         assert core.contrast_ratio(sun_hex, core.SUN_CARD_BG) >= 4.5, color
@@ -198,6 +202,18 @@ def test_beep_interval():
     assert android_main.beep_interval(-50) == pytest.approx(1.42)
     assert android_main.hex_to_rgba('#ffffff') == [1.0, 1.0, 1.0, 1.0]
     assert android_main.hex_to_rgba('garbage') == [0.5, 0.5, 0.5, 1.0]
+
+
+def test_skin_signal_colors():
+    """La piel NetMonster traduce los colores de señal del núcleo."""
+    import android_main
+    assert android_main.skin_hex('#00b894') == '#0CA663'
+    assert android_main.skin_hex('#2ecc71') == '#0CA663'
+    assert android_main.skin_hex('#fdcb6e') == '#EAB308'
+    assert android_main.skin_hex('#e68033') == '#EAB308'
+    assert android_main.skin_hex('#d63031') == '#EF4444'
+    assert android_main.skin_hex('green') == '#0CA663'
+    assert android_main.skin_hex('#123456') == '#123456'
 
 
 def test_double_back_disconnects(app):

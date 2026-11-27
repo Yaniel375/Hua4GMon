@@ -151,11 +151,15 @@ _FONT_PATH = os.path.join(_ASSETS, 'DejaVuSans.ttf')
 _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 
 THEMES: dict[str, dict[str, list[float]]] = {
+    # Piel NetMonster (guía de estilo, solo visual): fondo casi negro,
+    # tarjetas apenas más claras y un solo verde de marca #0CA663.
     'dark': {
-        'c_bg': [0.07, 0.09, 0.12, 1], 'c_card': [0.12, 0.14, 0.18, 1],
-        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
-        'c_accent': [0.04, 0.47, 0.84, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
-        'c_graph_bg': [0.1, 0.12, 0.16, 1], 'c_grid': [0.2, 0.23, 0.27, 1],
+        'c_bg': [0.07, 0.08, 0.07, 1], 'c_card': [0.12, 0.12, 0.12, 1],
+        'c_text': [1, 1, 1, 1], 'c_sub': [0.6, 0.63, 0.65, 1],
+        'c_accent': [0.05, 0.65, 0.39, 1], 'c_button2': [0.12, 0.12, 0.12, 1],
+        'c_graph_bg': [0.09, 0.09, 0.09, 1], 'c_grid': [0.16, 0.18, 0.16, 1],
+        'c_btn_border': [0.23, 0.23, 0.23, 1],
+        'c_on_accent': [0.04, 0.12, 0.09, 1],
     },
     # «Солнце»: максимальный контраст для экрана под прямым солнцем.
     'sun': {
@@ -163,6 +167,8 @@ THEMES: dict[str, dict[str, list[float]]] = {
         'c_text': [0, 0, 0, 1], 'c_sub': [0.2, 0.2, 0.2, 1],
         'c_accent': [0.0, 0.3, 0.7, 1], 'c_button2': [0.8, 0.82, 0.85, 1],
         'c_graph_bg': [1, 1, 1, 1], 'c_grid': [0.8, 0.8, 0.8, 1],
+        'c_btn_border': [0, 0, 0, 0],
+        'c_on_accent': [1, 1, 1, 1],
     },
 }
 
@@ -176,6 +182,23 @@ def fmt_num(value: float | None) -> str:
     if value is None or not math.isfinite(value):
         return "-"
     return str(value) if isinstance(value, int) else f"{value:g}"
+
+
+# Piel NetMonster: los colores de calidad de señal del núcleo
+# (verde/ámbar/rojo de SIGNAL_THRESHOLDS y de la salud general) se
+# traducen a la paleta de la piel. La lógica y los umbrales no cambian;
+# solo el color que se muestra. Lo no listado pasa tal cual.
+SKIN_SIGNAL_COLORS: dict[str, str] = {
+    '#00b894': '#0CA663', '#2ecc71': '#0CA663', '#33cc66': '#0CA663',
+    'green': '#0CA663',
+    '#fdcb6e': '#EAB308', '#e68033': '#EAB308', 'orange': '#EAB308',
+    '#d63031': '#EF4444', '#d93333': '#EF4444', 'red': '#EF4444',
+}
+
+
+def skin_hex(color: str) -> str:
+    """Color de señal del núcleo → color de la piel NetMonster."""
+    return SKIN_SIGNAL_COLORS.get(color, SKIN_SIGNAL_COLORS.get(color.lower(), color))
 
 
 def hex_to_rgba(color: str, sun: bool = False) -> list[float]:
@@ -320,6 +343,7 @@ class SignalGraph(Widget):
         self._param = 'sinr'
         self._stale = False
         self._tex: dict[tuple, Any] = {}
+        self._fill_tex: Any = None
         self.bind(pos=lambda *a: self._redraw(), size=lambda *a: self._redraw())
 
     def set_data(self, values: list[float], param: str, peak: float | None,
@@ -357,6 +381,37 @@ class SignalGraph(Widget):
 
     def _y_range(self) -> tuple[float, float]:
         return self.viewport.y_range()
+
+    def _fill_under_line(self, x0: float, y0: float, plot_w: float, plot_h: float,
+                         segs: list[tuple[float, float, float, float]],
+                         line_col: tuple[float, float, float, float]) -> None:
+        """Relleno degradado bajo la línea principal (piel NetMonster).
+
+        Malla de triángulos entre la línea y la base del gráfico: arriba
+        el color de la línea con alfa 0,28 y abajo transparente. Se dibuja
+        antes que la línea, dentro del mismo canvas.
+        """
+        from kivy.graphics import Mesh
+        from kivy.graphics.texture import Texture
+        if self._fill_tex is None:
+            self._fill_tex = Texture.create(size=(1, 1))
+            self._fill_tex.blit_buffer(b'\xff\xff\xff\xff', colorfmt='rgba',
+                                       bufferfmt='ubyte')
+        pts = [(x0 + plot_w * segs[0][0], y0 + plot_h * segs[0][1])]
+        pts += [(x0 + plot_w * s[2], y0 + plot_h * s[3]) for s in segs]
+        verts: list[float] = []
+        indices: list[int] = []
+        for i, (px, py) in enumerate(pts):
+            verts += [px, py, 0, 0, line_col[0], line_col[1], line_col[2], 0.28,
+                      px, y0, 0, 0, line_col[0], line_col[1], line_col[2], 0.0]
+            if i:
+                j = 2 * (i - 1)
+                indices += [j, j + 1, j + 2, j + 1, j + 3, j + 2]
+        Mesh(texture=self._fill_tex, vertices=verts, indices=indices,
+             mode='triangles',
+             vertex_format=[('vPosition', 2, 'float'),
+                            ('vTexCoords0', 2, 'float'),
+                            ('vColor', 4, 'float')])
 
     def _redraw(self) -> None:
         from kivy.graphics import Color, Ellipse, Line, Rectangle
@@ -403,24 +458,33 @@ class SignalGraph(Widget):
             Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2, self.y + dp(3)),
                       size=tex.size)
 
+            sun = app is not None and app.theme_name == 'sun'
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                Color(0.0, 0.72, 0.58, 1)
+                if sun:
+                    Color(0.2, 0.2, 0.2, 1)
+                else:
+                    # Piel NetMonster: el pico se marca con una línea
+                    # blanca punteada, como el umbral de sus gráficos.
+                    Color(1, 1, 1, 1)
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
             paired = self.viewport.has_comparison
             for comparison in ((False, True) if paired else (False,)):
                 param = comparison_param(self._param) if comparison else self._param
                 is_nr = param.startswith('nr_')
-                sun = app is not None and app.theme_name == 'sun'
                 if self._stale:
                     line_col = (0.6, 0.6, 0.6, 1)
                 elif is_nr:
                     line_col = (0.65, 0.30, 0.0, 1) if sun else (1.0, 0.65, 0.2, 1)
                 else:
-                    line_col = (0.0, 0.40, 0.65, 1) if sun else (0.0, 0.70, 1.0, 1)
+                    # Piel NetMonster: la línea principal va en verde de marca.
+                    line_col = (0.0, 0.40, 0.65, 1) if sun else (0.05, 0.65, 0.39, 1)
                 Color(*line_col)
-                for x1, y1, x2, y2 in self.viewport.segments(comparison):
+                segs = list(self.viewport.segments(comparison))
+                if not comparison and not self._stale and segs:
+                    self._fill_under_line(x0, y0, plot_w, plot_h, segs, line_col)
+                for x1, y1, x2, y2 in segs:
                     Line(points=[x0 + plot_w * x1, y0 + plot_h * y1,
                                  x0 + plot_w * x2, y0 + plot_h * y2], width=dp(1.5),
                          dash_length=dp(6) if is_nr else 0,
@@ -550,7 +614,7 @@ KV = """
     valign: 'middle'
     background_normal: ''
     background_color: app.c_accent
-    color: 1, 1, 1, 1
+    color: app.c_on_accent
     font_size: sp(16)
     size_hint_y: None
     height: dp(52)
@@ -560,6 +624,12 @@ KV = """
     background_color: app.c_button2
     color: app.c_text
     font_size: sp(16)
+    canvas.after:
+        Color:
+            rgba: app.c_btn_border
+        Line:
+            rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1)
+            width: dp(1)
 
 <SectionCard@BoxLayout>:
     orientation: 'vertical'
@@ -708,6 +778,9 @@ ScreenManager:
                     text: '192.168.8.1'
                     multiline: False
                     font_size: sp(18)
+                    background_color: app.c_card
+                    foreground_color: app.c_text
+                    cursor_color: app.c_accent
                 FlatButton:
                     text: root.lbl_find
                     size_hint_x: 0.45
@@ -722,6 +795,9 @@ ScreenManager:
                 font_size: sp(18)
                 size_hint_y: None
                 height: dp(50)
+                background_color: app.c_card
+                foreground_color: app.c_text
+                cursor_color: app.c_accent
                 on_text_validate: root.on_connect()
             ActionButton:
                 text: root.lbl_connect
@@ -791,6 +867,12 @@ ScreenManager:
             height: self.texture_size[1] + dp(2)
             text_size: self.width, None
             halign: 'center'
+            canvas.after:
+                Color:
+                    rgba: app.c_accent
+                Line:
+                    points: [self.center_x - dp(32), self.y + dp(2), self.center_x + dp(32), self.y + dp(2)]
+                    width: dp(2.5)
         Label:
             id: event_lbl
             text: ''
@@ -849,7 +931,7 @@ ScreenManager:
             FlatButton:
                 text: root.lbl_sound
                 background_color: app.c_accent if app.sound_on else app.c_button2
-                color: (1, 1, 1, 1) if app.sound_on else app.c_text
+                color: app.c_on_accent if app.sound_on else app.c_text
                 on_release: app.toggle_sound()
             FlatButton:
                 text: root.lbl_peaks
@@ -1031,7 +1113,7 @@ class ConnectionScreen(Screen):
     lbl_help = StringProperty("")
     lang_name = StringProperty("")
     lang_values = ListProperty([])
-    status_color = ListProperty([0.9, 0.5, 0.2, 1])
+    status_color = ListProperty([0.92, 0.71, 0.03, 1])
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
@@ -1102,8 +1184,8 @@ class MonitorScreen(Screen):
     lbl_peaks = StringProperty("")
     lbl_menu = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
-    status_color = ListProperty([0.2, 0.8, 0.4, 1])
-    advice_color = ListProperty([0.95, 0.62, 0.25, 1])
+    status_color = ListProperty([0.05, 0.65, 0.39, 1])
+    advice_color = ListProperty([0.92, 0.71, 0.03, 1])
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
@@ -1220,6 +1302,8 @@ class Hua4GMonApp(App):
     c_sub = ListProperty(THEMES['dark']['c_sub'])
     c_accent = ListProperty(THEMES['dark']['c_accent'])
     c_button2 = ListProperty(THEMES['dark']['c_button2'])
+    c_btn_border = ListProperty(THEMES['dark']['c_btn_border'])
+    c_on_accent = ListProperty(THEMES['dark']['c_on_accent'])
     sound_on = BooleanProperty(False)
     lbl_back = StringProperty("")
 
@@ -1494,13 +1578,13 @@ class Hua4GMonApp(App):
         sun = self.theme_name == 'sun'
         if self.link == 'reconnecting':
             lbl.text = t("Нет связи с роутером — переподключаюсь…")
-            scr.status_color = hex_to_rgba('#e68033', sun)
+            scr.status_color = hex_to_rgba('#EAB308', sun)
             ev = scr.ids.get('event_lbl')
             if detail and ev is not None:
                 ev.text = detail
         elif self.demo_modem is not None:
             lbl.text = t("Тестовый режим")
-            scr.status_color = hex_to_rgba('#e68033', sun)
+            scr.status_color = hex_to_rgba('#EAB308', sun)
 
     # ---------- данные ----------
 
@@ -1547,7 +1631,7 @@ class Hua4GMonApp(App):
             if lbl is not None:
                 lbl.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                     s=self.state.age(now) or 0)
-                scr.status_color = hex_to_rgba('#d63031', self.theme_name == 'sun')
+                scr.status_color = hex_to_rgba('#EF4444', self.theme_name == 'sun')
             self.refresh_graph(stale=True)
 
     def _metric_card(self, card: Any, param: str) -> None:
@@ -1556,7 +1640,7 @@ class Hua4GMonApp(App):
         card.m_name = PARAM_TITLES.get(param, param.upper())
         card.m_value = fmt_num(val)
         card.m_status = t(label)
-        card.m_color = hex_to_rgba(color, self.theme_name == 'sun')
+        card.m_color = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
         peak, delta = self.state.peaks.get(param), self.state.delta_to_peak(param)
         card.m_peak = "" if peak is None or delta is None else \
             t("Пик: {v} (Δ {d})").format(v=fmt_num(peak), d=f"{delta:+g}")
@@ -1583,7 +1667,7 @@ class Hua4GMonApp(App):
             health = t("ДЕМО · азимут {a}").format(
                 a=demo_angle_hint(self.demo_modem)) + " · " + health
         ids.status_lbl.text = health
-        scr.status_color = hex_to_rgba(color, sun)
+        scr.status_color = hex_to_rgba(skin_hex(color), sun)
         ids.tower_lbl.text = self._tower_summary(snap)
         cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
         for card, param in zip(cards, self._layout_params(), strict=True):
@@ -1598,7 +1682,7 @@ class Hua4GMonApp(App):
         elif snap.connection != 901 or snap.data_enabled is False:
             tips.insert(0, snap.network_message)
         ids.advice_lbl.text = "\n".join("• " + t(tip) for tip in tips[:2])
-        scr.advice_color = hex_to_rgba('#e68033', sun)
+        scr.advice_color = hex_to_rgba('#EAB308', sun)
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
@@ -1782,7 +1866,9 @@ class Hua4GMonApp(App):
             (t("⏏ Отключиться"), self.confirm_disconnect),
         ]
         for text, action in items:
-            btn = Button(text=text, font_size=sp(17), size_hint_y=None, height=dp(56))
+            btn = Button(text=text, font_size=sp(17), size_hint_y=None, height=dp(56),
+                         background_normal='', background_color=self.c_button2,
+                         color=self.c_text)
             btn.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
             box.add_widget(btn)
         popup.open()
@@ -1959,7 +2045,7 @@ class Hua4GMonApp(App):
     def _net_msg(self, text: str, color: str) -> None:
         tools = self._tools()
         tools.net_msg = text
-        tools.net_msg_color = hex_to_rgba(color, self.theme_name == 'sun')
+        tools.net_msg_color = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
 
     def build_band_checkboxes(self) -> None:
         grid = self._tools().ids.get('bands_grid')
@@ -2224,7 +2310,7 @@ class Hua4GMonApp(App):
         session = self.session
         tools = self._tools()
         tools.wl_verdict = t("Проверка…")
-        tools.wl_color = hex_to_rgba('#e68033', self.theme_name == 'sun')
+        tools.wl_color = hex_to_rgba('#EAB308', self.theme_name == 'sun')
         tools.wl_detail = t("Проверка занимает несколько секунд.")
 
         def done(report: Any) -> None:
@@ -2232,7 +2318,7 @@ class Hua4GMonApp(App):
                 return
             self._wl_running = False
             tools.wl_verdict = report.title
-            tools.wl_color = hex_to_rgba(report.color, self.theme_name == 'sun')
+            tools.wl_color = hex_to_rgba(skin_hex(report.color), self.theme_name == 'sun')
             lines = [report.detail, ""]
             for title, results in ((t("В белых списках:"), report.white),
                                    (t("Нейтральные:"), report.neutral)):
