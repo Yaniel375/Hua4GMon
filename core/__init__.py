@@ -72,6 +72,26 @@ from core.i18n import (
     t,
 )
 from core.models import CellKey, Snapshot, build_snapshot
+from core.netmonster import (
+    SignalBar,
+    band_chip,
+    carrier_lines,
+    detail_log,
+    format_duration,
+    format_log_datetime,
+    format_log_identity,
+    format_log_time,
+    format_neighbour,
+    format_observation,
+    format_plmn,
+    good_threshold,
+    net_rows,
+    net_rows_3g,
+    rat_line,
+    serving_cell_rows,
+    signal_bars,
+    trend_arrow,
+)
 from core.palette import (
     MIN_CONTRAST,
     SUN_CARD_BG,
@@ -176,6 +196,12 @@ __all__ = [
     "set_language", "t",
     # models
     "CellKey", "Snapshot", "build_snapshot",
+    # netmonster (NetMonster-style presentation, pure logic)
+    "SignalBar", "band_chip", "carrier_lines", "detail_log",
+    "format_duration", "format_log_datetime", "format_log_identity",
+    "format_log_time", "format_neighbour", "format_observation",
+    "format_plmn", "good_threshold", "net_rows", "net_rows_3g", "rat_line",
+    "serving_cell_rows", "signal_bars", "trend_arrow",
     # palette
     "MIN_CONTRAST", "SUN_CARD_BG", "WINDOWS_BG", "contrast_ratio", "readable_on",
     # parsers

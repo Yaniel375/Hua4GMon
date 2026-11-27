@@ -181,6 +181,45 @@ class Survey:
                              'rat_code': op['Rat'], 'operator_state': op['State']})
         return output.getvalue()
 
+    def band_log_csv(self, lang: str = 'es') -> str:
+        """Detailed per-band/per-cell log as CSV.
+
+        One row per observed cell: technology, band, frequency, EARFCN,
+        identity, operator, first/last seen, approximate duration on
+        that band, samples, and min/median/max per metric. Only real
+        data: a metric the router never reported leaves its cells empty.
+        """
+        from core.netmonster import detail_log
+        delimiter, decimal = csv_dialect(lang)
+        output = io.StringIO(newline='')
+        metrics = ('rsrp', 'sinr', 'rsrq', 'rssi', 'nr_rsrp', 'nr_sinr')
+        fieldnames = ['tech', 'band', 'band_no', 'freq_mhz', 'earfcn',
+                      'identity', 'enb_cid', 'tac', 'pci', 'operator',
+                      'plmn', 'first', 'last', 'duration_s', 'samples']
+        fieldnames += [f'{m}_{s}' for m in metrics
+                       for s in ('min', 'median', 'max')]
+        writer = csv.DictWriter(output, fieldnames=fieldnames,
+                                delimiter=delimiter)
+        writer.writeheader()
+        for row in self.ranked():
+            d = detail_log(row)
+            values = {'tech': d['tech'], 'band': d['band'],
+                      'band_no': d['band_no'], 'freq_mhz': d['freq'],
+                      'earfcn': d['earfcn'], 'identity': d['identity'],
+                      'enb_cid': d['enb_cid'], 'tac': d['tac'],
+                      'pci': d['pci'], 'operator': d['operator'],
+                      'plmn': d['plmn'], 'first': d['first'],
+                      'last': d['last'], 'duration_s': d['duration_s'],
+                      'samples': d['samples']}
+            for metric in metrics:
+                minimum, median, maximum = d[metric]
+                values[f'{metric}_min'] = minimum
+                values[f'{metric}_median'] = median
+                values[f'{metric}_max'] = maximum
+            writer.writerow({k: _cell(v, decimal)
+                             for k, v in values.items()})
+        return output.getvalue()
+
 
 def records(data: Any, depth: int = 0):
     """Bound recursion for unexpected firmware responses."""

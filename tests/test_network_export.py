@@ -214,6 +214,16 @@ def test_csv_en(tmp_path):
 def test_csv_dialect_and_name():
     assert core.csv_dialect('ru') == (';', ',')
     assert core.csv_dialect('en') == (',', '.')
+    # Español: como en ruso, ';' y coma decimal para Excel en español.
+    assert core.csv_dialect('es') == (';', ',')
+
+
+def test_csv_es_excel(tmp_path):
+    p = tmp_path / "s.csv"
+    assert core.write_session_csv(str(p), ROWS, lang='es') == 2
+    lines = p.read_text(encoding='utf-8-sig').splitlines()
+    assert lines[0].startswith("ts;rsrp;rssi;sinr;rsrq")
+    assert ";12,5;" in lines[1]
     assert core.default_csv_name(datetime.datetime(2026, 9, 24, 7, 5, 9)) == \
         "hua4gmon-20260924-070509.csv"
 

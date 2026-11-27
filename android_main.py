@@ -70,9 +70,12 @@ except ImportError:
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import LabelBase
+from kivy.factory import Factory
 from kivy.lang import Builder
 from kivy.metrics import dp, sp
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -97,20 +100,28 @@ from core import (
     Snapshot,
     __version__,
     advice,
+    band_chip,
     build_diagnostics,
     calculate_overall_health,
+    carrier_lines,
     configure_library_logging,
     current_language,
     demo_angle_hint,
     demo_factory,
+    detail_log,
     diagnostics_json,
     discover_router,
     evaluate_signal,
     format_bytes_mb,
+    format_log_identity,
+    format_log_time,
     format_mimo,
     format_modulation,
+    format_observation,
+    format_plmn,
     format_rank,
     format_rate_mbps,
+    good_threshold,
     humanize_error,
     is_valid_ip,
     library_version,
@@ -118,11 +129,16 @@ from core import (
     lockable_bands,
     lte_band_label,
     mimo_status,
+    net_rows,
+    net_rows_3g,
     parse_antenna_value,
+    rat_line,
     readable_on,
     run_whitelist_check,
     set_language,
+    signal_bars,
     t,
+    trend_arrow,
     uplink_status,
 )
 from core.graph import GestureViewport, GraphViewport, comparison_param, radio_label
@@ -152,19 +168,32 @@ _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 
 THEMES: dict[str, dict[str, list[float]]] = {
     'dark': {
-        'c_bg': [0.07, 0.09, 0.12, 1], 'c_card': [0.12, 0.14, 0.18, 1],
-        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
-        'c_accent': [0.04, 0.47, 0.84, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
-        'c_graph_bg': [0.1, 0.12, 0.16, 1], 'c_grid': [0.2, 0.23, 0.27, 1],
+        # Oscuro: negro oscuro cristalino — fondo negro puro, tarjetas
+        # negro brillante, acento verde NetMonster.
+        'c_bg': [0.0, 0.0, 0.0, 1], 'c_card': [0.08, 0.08, 0.09, 1],
+        'c_text': [0.95, 0.96, 0.97, 1], 'c_sub': [0.65, 0.68, 0.72, 1],
+        'c_accent': [0.0, 0.72, 0.58, 1], 'c_button2': [0.16, 0.18, 0.2, 1],
+        'c_graph_bg': [0.02, 0.02, 0.02, 1], 'c_grid': [0.15, 0.15, 0.16, 1],
     },
-    # «Солнце»: максимальный контраст для экрана под прямым солнцем.
+    # «Солнце»: máximo contraste, estilo blanco para pantalla a pleno sol.
     'sun': {
         'c_bg': [1, 1, 1, 1], 'c_card': [0.92, 0.93, 0.94, 1],
         'c_text': [0, 0, 0, 1], 'c_sub': [0.2, 0.2, 0.2, 1],
         'c_accent': [0.0, 0.3, 0.7, 1], 'c_button2': [0.8, 0.82, 0.85, 1],
         'c_graph_bg': [1, 1, 1, 1], 'c_grid': [0.8, 0.8, 0.8, 1],
     },
+    # Predeterminado: el verde de NetMonster (fondo verde oscuro a negro).
+    'default': {
+        'c_bg': [0.04, 0.08, 0.06, 1], 'c_card': [0.09, 0.13, 0.10, 1],
+        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
+        'c_accent': [0.0, 0.72, 0.58, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
+        'c_graph_bg': [0.06, 0.10, 0.08, 1], 'c_grid': [0.16, 0.20, 0.17, 1],
+    },
 }
+
+
+# Tema que trae la app por defecto (el verde de NetMonster).
+DEFAULT_THEME = 'default'
 
 
 def unit_of(param: str) -> str:
@@ -359,9 +388,9 @@ class SignalGraph(Widget):
         return self.viewport.y_range()
 
     def _redraw(self) -> None:
-        from kivy.graphics import Color, Ellipse, Line, Rectangle
+        from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
         app = App.get_running_app()
-        theme = THEMES[app.theme_name] if app else THEMES['dark']
+        theme = THEMES[app.theme_name] if app else THEMES[DEFAULT_THEME]
         text_col = tuple(theme['c_sub'])
         self.canvas.clear()
         w, h = self.width, self.height
@@ -405,22 +434,47 @@ class SignalGraph(Widget):
 
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                Color(0.0, 0.72, 0.58, 1)
+                Color(*theme['c_accent'])
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
+            # NetMonster-style dashed "good" threshold line.
+            thr = good_threshold(self._param)
+            if thr is not None and y_min <= thr <= y_max:
+                ty = y_of(thr)
+                Color(0.75, 0.75, 0.75, 0.9)
+                Line(points=[x0, ty, x0 + plot_w, ty], width=1,
+                     dash_length=dp(4), dash_offset=dp(3))
             paired = self.viewport.has_comparison
             for comparison in ((False, True) if paired else (False,)):
                 param = comparison_param(self._param) if comparison else self._param
                 is_nr = param.startswith('nr_')
                 sun = app is not None and app.theme_name == 'sun'
+                latest = self.viewport.latest_value(comparison)
                 if self._stale:
                     line_col = (0.6, 0.6, 0.6, 1)
+                elif latest is not None:
+                    # Line colour follows the latest value's quality
+                    # (green / yellow / red), as in NetMonster Charts.
+                    base = param[3:] if is_nr else param
+                    _st, col, _pc = evaluate_signal(base, latest)
+                    line_col = tuple(hex_to_rgba(col, sun))
                 elif is_nr:
                     line_col = (0.65, 0.30, 0.0, 1) if sun else (1.0, 0.65, 0.2, 1)
                 else:
                     line_col = (0.0, 0.40, 0.65, 1) if sun else (0.0, 0.70, 1.0, 1)
+                segs = self.viewport.segments(comparison)
+                if segs:
+                    # Filled area under the line (translucent quality colour).
+                    pts = [(segs[0][0], segs[0][1])] + [(s[2], s[3]) for s in segs]
+                    verts = [x0 + plot_w * pts[0][0], y0, 0, 0]
+                    for px, py in pts:
+                        verts += [x0 + plot_w * px, y0 + plot_h * py, 0, 0]
+                    verts += [x0 + plot_w * pts[-1][0], y0, 0, 0]
+                    Color(line_col[0], line_col[1], line_col[2], 0.22)
+                    Mesh(vertices=verts, indices=list(range(len(verts) // 4)),
+                         mode='triangle_fan')
                 Color(*line_col)
-                for x1, y1, x2, y2 in self.viewport.segments(comparison):
+                for x1, y1, x2, y2 in segs:
                     Line(points=[x0 + plot_w * x1, y0 + plot_h * y1,
                                  x0 + plot_w * x2, y0 + plot_h * y2], width=dp(1.5),
                          dash_length=dp(6) if is_nr else 0,
@@ -644,6 +698,305 @@ KV = """
         halign: 'center'
         size_hint_y: 0.25
 
+<SignalBarRow@BoxLayout>:
+    orientation: 'vertical'
+    bar_name: ''
+    bar_value: ''
+    bar_status: ''
+    bar_hint: ''
+    bar_pct: 0
+    bar_color: 0.5, 0.5, 0.5, 1
+    size_hint_y: None
+    height: dp(76)
+    spacing: dp(2)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(24)
+        spacing: dp(6)
+        Label:
+            text: root.bar_name
+            font_size: sp(14)
+            color: app.c_sub
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+            size_hint_x: 0.55
+        Label:
+            text: root.bar_value
+            font_size: sp(20)
+            bold: True
+            color: root.bar_color
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+            size_hint_x: 0.45
+    BoxLayout:
+        size_hint_y: None
+        height: dp(10)
+        canvas.before:
+            Color:
+                rgba: app.c_button2
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(5)]
+        Widget:
+            size_hint_x: None
+            width: max(0, (self.parent.width - dp(2)) * root.bar_pct / 100.0)
+            canvas.before:
+                Color:
+                    rgba: root.bar_color
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [dp(5)]
+    Label:
+        text: root.bar_status if not root.bar_hint else root.bar_status + ' - ' + root.bar_hint
+        font_size: sp(12)
+        color: app.c_sub
+        halign: 'left'
+        valign: 'top'
+        text_size: self.width, None
+        size_hint_y: None
+        height: dp(18) if self.text else 0
+
+<NetRow@BoxLayout>:
+    orientation: 'horizontal'
+    n_label: ''
+    n_value: '-'
+    n_unit: ''
+    n_trend: ''
+    n_trend_color: 0.5, 0.5, 0.5, 1
+    size_hint_y: None
+    height: dp(36)
+    spacing: dp(4)
+    Label:
+        text: root.n_label
+        font_size: sp(17)
+        color: app.c_sub
+        halign: 'left'
+        valign: 'middle'
+        text_size: self.size
+        size_hint_x: 0.38
+    Label:
+        text: root.n_value
+        font_size: sp(20)
+        bold: True
+        color: app.c_text
+        halign: 'right'
+        valign: 'middle'
+        text_size: self.size
+        size_hint_x: 0.34
+    Label:
+        text: root.n_unit
+        font_size: sp(13)
+        color: app.c_sub
+        halign: 'left'
+        valign: 'bottom'
+        text_size: self.size
+        size_hint_x: 0.16
+    Label:
+        text: root.n_trend
+        font_size: sp(15)
+        color: root.n_trend_color
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        size_hint_x: 0.12
+
+<ChipLabel>:
+    chip_color: 1, 1, 1, 1
+    bold: True
+    font_size: sp(15)
+    color: root.chip_color
+    size_hint_x: None
+    width: self.texture_size[0] + dp(16)
+    size_hint_y: None
+    height: dp(26)
+    canvas.before:
+        Color:
+            rgba: root.chip_color
+        Line:
+            rounded_rectangle: self.x, self.y, self.width, self.height, dp(6)
+            width: dp(1.2)
+
+<LogRow>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: dp(64)
+    padding: dp(4), dp(2)
+    spacing: dp(2)
+    canvas.after:
+        Color:
+            rgba: app.c_grid
+        Line:
+            points: self.x, self.y, self.right, self.y
+            width: dp(1)
+
+<BandLockSheet>:
+    sheet_title: ''
+    tab_recent_text: ''
+    tab_routines_text: ''
+    new_lock_text: ''
+    unlock_all_text: ''
+    orientation: 'vertical'
+    padding: dp(16)
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: app.c_card
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(24), dp(24), 0, 0]
+    Widget:
+        size_hint_y: None
+        height: dp(5)
+        size_hint_x: None
+        width: dp(48)
+        pos_hint: {'center_x': 0.5}
+        canvas.before:
+            Color:
+                rgba: app.c_button2
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(3)]
+    Label:
+        text: root.sheet_title
+        font_size: sp(22)
+        bold: True
+        color: app.c_text
+        halign: 'left'
+        valign: 'middle'
+        text_size: self.size
+        size_hint_y: None
+        height: dp(32)
+    Widget:
+        size_hint_y: None
+        height: dp(6)
+        size_hint_x: 0.5
+        canvas.before:
+            Color:
+                rgba: app.c_accent
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(3)]
+    BoxLayout:
+        size_hint_y: None
+        height: dp(44)
+        spacing: dp(8)
+        FlatButton:
+            id: tab_recent
+            text: root.tab_recent_text
+            font_size: sp(16)
+            on_release: app.set_lock_sheet_tab('recent')
+        FlatButton:
+            id: tab_routines
+            text: root.tab_routines_text
+            font_size: sp(16)
+            on_release: app.set_lock_sheet_tab('routines')
+    BoxLayout:
+        id: sheet_body
+        orientation: 'vertical'
+        spacing: dp(2)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(52)
+        spacing: dp(8)
+        FlatButton:
+            text: root.new_lock_text
+            font_size: sp(16)
+            on_release: app.new_band_lock()
+        FlatButton:
+            text: root.unlock_all_text
+            font_size: sp(16)
+            on_release: app.unlock_all_bands()
+
+<NavButton>:
+    orientation: 'vertical'
+    spacing: 0
+    padding: dp(2), dp(4)
+    canvas.before:
+        Color:
+            rgba: (app.c_accent[0] * 0.45, app.c_accent[1] * 0.45, app.c_accent[2] * 0.45, 1) if root.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x + dp(3), self.y + dp(5)
+            size: self.width - dp(6), self.height - dp(10)
+            radius: [dp(14)]
+    AnchorLayout:
+        anchor_x: 'center'
+        anchor_y: 'center'
+        size_hint_y: 0.58
+        Label:
+            text: root.nav_icon
+            font_size: sp(18) if root.nav_icon_box else sp(22)
+            color: (1, 1, 1, 1) if root.active else app.c_sub
+            halign: 'center'
+            valign: 'middle'
+            text_size: self.size
+            size_hint: None, None
+            size: dp(32), dp(30)
+            canvas.before:
+                Color:
+                    rgba: ((1, 1, 1, 1) if root.active else app.c_sub) if root.nav_icon_box else (0, 0, 0, 0)
+                Line:
+                    rounded_rectangle: self.x, self.y, self.width, self.height, dp(7)
+                    width: dp(1.5)
+    Label:
+        text: root.nav_text
+        font_size: sp(13)
+        bold: root.active
+        color: (1, 1, 1, 1) if root.active else app.c_sub
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        size_hint_y: 0.42
+
+<BottomNav@BoxLayout>:
+    size_hint_y: None
+    height: dp(64)
+    spacing: dp(2)
+    canvas.before:
+        Color:
+            rgba: app.c_button2
+        RoundedRectangle:
+            pos: self.x + dp(6), self.y + dp(4)
+            size: self.width - dp(12), self.height - dp(8)
+            radius: [dp(24)]
+        Color:
+            rgba: app.c_grid
+        Line:
+            rounded_rectangle: self.x + dp(6), self.y + dp(4), self.width - dp(12), self.height - dp(8), dp(24)
+            width: dp(1)
+    NavButton:
+        nav_icon: '↗'
+        nav_text: app.nav_charts
+        nav_target: 'charts'
+        nav_icon_box: True
+        on_release: app.go('charts')
+    NavButton:
+        nav_icon: '▦'
+        nav_text: app.nav_map
+        nav_target: 'map'
+        on_release: app.go('map')
+    NavButton:
+        nav_icon: '◎'
+        nav_text: app.nav_monitor
+        nav_target: 'monitor'
+        on_release: app.go('monitor')
+    NavButton:
+        nav_icon: '▤'
+        nav_text: app.nav_cells
+        nav_target: 'cells'
+        on_release: app.go('cells')
+    NavButton:
+        nav_icon: '☰'
+        nav_text: app.nav_menu
+        nav_target: 'menu'
+        on_release: app.open_menu()
+
 <Header@BoxLayout>:
     title: ''
     size_hint_y: None
@@ -664,8 +1017,12 @@ KV = """
 ScreenManager:
     ConnectionScreen:
     MonitorScreen:
+    ChartsScreen:
+    MapScreen:
+    CellsScreen:
     InfoScreen:
     ToolsScreen:
+    SettingsScreen:
 
 <ConnectionScreen>:
     name: 'connection'
@@ -771,92 +1128,746 @@ ScreenManager:
         orientation: 'vertical'
         padding: dp(8)
         spacing: dp(6)
-        Label:
-            id: status_lbl
-            text: ''
-            font_size: sp(15)
-            bold: True
-            color: root.status_color
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-        Label:
-            id: tower_lbl
-            text: '—'
-            font_size: sp(15)
-            bold: True
-            color: app.c_text
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-        Label:
-            id: event_lbl
-            text: ''
-            font_size: sp(13)
-            color: app.c_sub
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'center'
-        GridLayout:
-            id: metrics_grid
-            cols: 2
-            rows: 2
-            spacing: dp(6)
-            size_hint_y: 0.47
-            MetricCard:
-                id: primary_box
-            MetricCard:
-                id: secondary_box
-            MetricCard:
-                id: small1_box
-            MetricCard:
-                id: small2_box
-        Label:
-            id: advice_lbl
-            text: ''
-            font_size: sp(13)
-            color: root.advice_color
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'left'
+        ScrollView:
+            id: monitor_scroll
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(2)
+                spacing: dp(8)
+                Label:
+                    id: status_lbl
+                    text: ''
+                    font_size: sp(15)
+                    bold: True
+                    color: root.status_color
+                    size_hint_y: None
+                    height: self.texture_size[1] + dp(2)
+                    text_size: self.width, None
+                    halign: 'center'
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(2)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(52)
+                        Label:
+                            id: operator_lbl
+                            text: '-'
+                            font_size: sp(36)
+                            bold: True
+                            color: app.c_text
+                            halign: 'left'
+                            valign: 'middle'
+                            text_size: self.size
+                            size_hint_x: 0.65
+                        Label:
+                            id: plmn_lbl
+                            text: '-'
+                            font_size: sp(22)
+                            color: app.c_text
+                            halign: 'right'
+                            valign: 'middle'
+                            text_size: self.size
+                            size_hint_x: 0.35
+                    Widget:
+                        size_hint_y: None
+                        height: dp(6)
+                        size_hint_x: 0.45
+                        canvas.before:
+                            Color:
+                                rgba: app.c_accent
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(3)]
+                    Label:
+                        id: rat_lbl
+                        text: '-'
+                        font_size: sp(20)
+                        color: app.c_text
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        size_hint_y: None
+                        height: dp(30)
+                BoxLayout:
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(12)
+                    BoxLayout:
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
+                        spacing: dp(2)
+                        NetRow:
+                            id: net_ci
+                        NetRow:
+                            id: net_enb
+                        NetRow:
+                            id: net_tac
+                        NetRow:
+                            id: net_pci
+                    BoxLayout:
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
+                        spacing: dp(2)
+                        NetRow:
+                            id: net_earfcn
+                        NetRow:
+                            id: net_rssi
+                        NetRow:
+                            id: net_rsrp
+                        NetRow:
+                            id: net_rsrq
+                        NetRow:
+                            id: net_snr
+                        NetRow:
+                            id: net_cqi
+                Label:
+                    id: tower_lbl
+                    text: '—'
+                    font_size: sp(15)
+                    bold: True
+                    color: app.c_text
+                    size_hint_y: None
+                    height: self.texture_size[1] + dp(2)
+                    text_size: self.width, None
+                    halign: 'center'
+                Label:
+                    id: event_lbl
+                    text: ''
+                    font_size: sp(13)
+                    color: app.c_sub
+                    size_hint_y: None
+                    height: self.texture_size[1] if self.text else 0
+                    text_size: self.width, None
+                    halign: 'center'
+                SectionCard:
+                    SignalBarRow:
+                        id: health_bar
+                GridLayout:
+                    id: metrics_grid
+                    cols: 2
+                    rows: 2
+                    spacing: dp(6)
+                    size_hint_y: None
+                    height: dp(320)
+                    MetricCard:
+                        id: primary_box
+                    MetricCard:
+                        id: secondary_box
+                    MetricCard:
+                        id: small1_box
+                    MetricCard:
+                        id: small2_box
+                Label:
+                    id: advice_lbl
+                    text: ''
+                    font_size: sp(13)
+                    color: root.advice_color
+                    size_hint_y: None
+                    height: self.texture_size[1] if self.text else 0
+                    text_size: self.width, None
+                    halign: 'left'
+                SectionCard:
+                    SectionTitle:
+                        text: root.lbl_bars_title
+                    SignalBarRow:
+                        id: bar_rsrp
+                    SignalBarRow:
+                        id: bar_sinr
+                    SignalBarRow:
+                        id: bar_rsrq
+                    SignalBarRow:
+                        id: bar_rssi
+                    SignalBarRow:
+                        id: bar_cqi
+                    SignalBarRow:
+                        id: bar_nr_rsrp
+                    SignalBarRow:
+                        id: bar_nr_sinr
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(42)
+                    spacing: dp(6)
+                    Spinner:
+                        id: graph_param
+                        text: 'sinr'
+                        values: root.graph_values
+                        size_hint_x: 0.5
+                        font_size: sp(15)
+                        on_text: app.set_graph_param(self.text)
+                    FlatButton:
+                        text: root.lbl_fullscreen
+                        size_hint_x: 0.5
+                        font_size: sp(14)
+                        on_release: app.open_fullscreen_graph()
+                SignalGraph:
+                    id: signal_graph
+                    size_hint_y: None
+                    height: dp(180)
+                SectionCard:
+                    SectionTitle:
+                        text: root.lbl_ca_title
+                    InfoLabel:
+                        id: ca_lbl
+                        text: ''
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(52)
+                    spacing: dp(8)
+                    FlatButton:
+                        text: root.lbl_tools
+                        font_size: sp(15)
+                        on_release: app.go('tools')
+                    FlatButton:
+                        text: root.lbl_band_lock
+                        font_size: sp(15)
+                        on_release: app.open_band_lock_sheet()
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(56)
+                    spacing: dp(6)
+                    FlatButton:
+                        text: root.lbl_sound
+                        background_color: app.c_accent if app.sound_on else app.c_button2
+                        color: (1, 1, 1, 1) if app.sound_on else app.c_text
+                        on_release: app.toggle_sound()
+                    FlatButton:
+                        text: root.lbl_peaks
+                        on_release: app.reset_peaks()
+                    FlatButton:
+                        text: root.lbl_menu
+                        on_release: app.open_menu()
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BottomNav:
+            id: bottom_nav
+
+<ChartsScreen>:
+    name: 'charts'
+    canvas.before:
+        Color:
+            rgba: app.c_bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        Header:
+            title: root.lbl_title
+        ScrollView:
+            id: content_scroll
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(10)
+                spacing: dp(10)
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(2)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(40)
+                        Label:
+                            id: charts_operator
+                            text: '-'
+                            font_size: sp(28)
+                            bold: True
+                            color: app.c_text
+                            halign: 'left'
+                            valign: 'middle'
+                            text_size: self.size
+                            size_hint_x: 0.6
+                        Label:
+                            id: charts_rat
+                            text: '-'
+                            font_size: sp(18)
+                            color: app.c_text
+                            halign: 'right'
+                            valign: 'middle'
+                            text_size: self.size
+                            size_hint_x: 0.4
+                    Widget:
+                        size_hint_y: None
+                        height: dp(6)
+                        size_hint_x: 0.45
+                        canvas.before:
+                            Color:
+                                rgba: app.c_accent
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(3)]
+                    Label:
+                        id: charts_cell
+                        text: '-'
+                        font_size: sp(18)
+                        color: app.c_text
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        size_hint_y: None
+                        height: dp(28)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(30)
+                        spacing: dp(8)
+                        ChipLabel:
+                            id: charts_chip
+                            chip_color: app.c_accent
+                GridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: self.minimum_height
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'RSSI'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rssi_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rssi_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_rssi
+                            size_hint_y: None
+                            height: dp(140)
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'RSRP'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rsrp_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rsrp_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_rsrp
+                            size_hint_y: None
+                            height: dp(140)
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'RSRQ'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rsrq_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_rsrq_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_rsrq
+                            size_hint_y: None
+                            height: dp(140)
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'SNR'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_sinr_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_sinr_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_sinr
+                            size_hint_y: None
+                            height: dp(140)
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'NR RSRP'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_nr_rsrp_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_nr_rsrp_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_nr_rsrp
+                            size_hint_y: None
+                            height: dp(140)
+                    SectionCard:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(24)
+                            Label:
+                                text: 'NR SINR'
+                                font_size: sp(16)
+                                bold: True
+                                color: app.c_text
+                                halign: 'left'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_nr_sinr_lbl
+                                text: '-'
+                                font_size: sp(18)
+                                bold: True
+                                color: app.c_text
+                                halign: 'right'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.45
+                            Label:
+                                id: chart_nr_sinr_dot
+                                text: '•'
+                                font_size: sp(16)
+                                color: app.c_sub
+                                halign: 'center'
+                                valign: 'middle'
+                                text_size: self.size
+                                size_hint_x: 0.1
+                        SignalGraph:
+                            id: chart_nr_sinr
+                            size_hint_y: None
+                            height: dp(140)
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BottomNav:
+            id: bottom_nav
+
+<MapScreen>:
+    name: 'map'
+    canvas.before:
+        Color:
+            rgba: app.c_bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        Header:
+            title: root.lbl_title
+        ScrollView:
+            id: content_scroll
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(10)
+                spacing: dp(10)
+                SectionCard:
+                    InfoLabel:
+                        id: map_note_lbl
+                        text: ''
+                SectionCard:
+                    SectionTitle:
+                        text: root.lbl_cells_title
+                    InfoLabel:
+                        id: map_cells_lbl
+                        text: ''
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BottomNav:
+            id: bottom_nav
+
+<CellsScreen>:
+    name: 'cells'
+    canvas.before:
+        Color:
+            rgba: app.c_bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(8)
+        spacing: dp(6)
         BoxLayout:
             size_hint_y: None
-            height: dp(42)
-            spacing: dp(6)
-            Spinner:
-                id: graph_param
-                text: 'sinr'
-                values: root.graph_values
-                size_hint_x: 0.5
-                font_size: sp(15)
-                on_text: app.set_graph_param(self.text)
+            height: dp(48)
+            spacing: dp(8)
+            Label:
+                id: log_day_lbl
+                text: ''
+                font_size: sp(24)
+                bold: True
+                color: app.c_text
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+                size_hint_x: 0.8
             FlatButton:
-                text: root.lbl_fullscreen
-                size_hint_x: 0.5
-                font_size: sp(14)
-                on_release: app.open_fullscreen_graph()
-        SignalGraph:
-            id: signal_graph
-            size_hint_y: 0.26
+                text: '⋮'
+                font_size: sp(22)
+                size_hint_x: 0.2
+                on_release: app.open_menu()
+        Widget:
+            size_hint_y: None
+            height: dp(6)
+            size_hint_x: 0.25
+            canvas.before:
+                Color:
+                    rgba: app.c_accent
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [dp(3)]
+        ScrollView:
+            id: content_scroll
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                id: cells_content
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(8)
+                BoxLayout:
+                    id: log_list
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(2)
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(48)
+                    spacing: dp(8)
+                    Label:
+                        text: root.lbl_detail_title
+                        font_size: sp(18)
+                        bold: True
+                        color: app.c_text
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        size_hint_x: 0.6
+                    FlatButton:
+                        text: root.lbl_export_csv
+                        font_size: sp(14)
+                        size_hint_x: 0.4
+                        on_release: app.export_detail_csv()
+                BoxLayout:
+                    id: detail_list
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(8)
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BoxLayout:
+            size_hint_y: None
+            height: dp(52)
+            spacing: dp(8)
+            FlatButton:
+                id: filter_btn
+                text: root.lbl_filter
+                font_size: sp(15)
+                on_release: app.cycle_cells_filter()
+            FlatButton:
+                text: root.lbl_copy_log
+                font_size: sp(15)
+                on_release: app.copy_cells_log()
+            FlatButton:
+                text: root.lbl_survey
+                font_size: sp(15)
+                on_release: app.open_survey()
+        BottomNav:
+            id: bottom_nav
+
+<SettingsScreen>:
+    name: 'settings'
+    canvas.before:
+        Color:
+            rgba: app.c_bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(8)
+        spacing: dp(6)
         BoxLayout:
             size_hint_y: None
             height: dp(56)
-            spacing: dp(6)
+            spacing: dp(8)
             FlatButton:
-                text: root.lbl_sound
-                background_color: app.c_accent if app.sound_on else app.c_button2
-                color: (1, 1, 1, 1) if app.sound_on else app.c_text
-                on_release: app.toggle_sound()
-            FlatButton:
-                text: root.lbl_peaks
-                on_release: app.reset_peaks()
-            FlatButton:
-                text: root.lbl_menu
-                on_release: app.open_menu()
+                text: '←'
+                font_size: sp(28)
+                size_hint_x: None
+                width: dp(56)
+                on_release: app.go('monitor')
+            Label:
+                text: ''
+        Label:
+            text: root.lbl_title
+            font_size: sp(36)
+            bold: True
+            color: app.c_text
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+            size_hint_y: None
+            height: dp(56)
+        ScrollView:
+            id: content_scroll
+            bar_width: dp(8)
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(4)
+                Label:
+                    text: root.lbl_prefs
+                    font_size: sp(16)
+                    bold: True
+                    color: app.c_accent
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    size_hint_y: None
+                    height: dp(36)
+                BoxLayout:
+                    id: settings_rows
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(4)
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+
+<SettingsRow>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(84)
+    padding: dp(4), dp(4)
+    spacing: dp(12)
 
 <InfoScreen>:
     name: 'info'
@@ -904,6 +1915,11 @@ ScreenManager:
                     InfoLabel:
                         id: status_block
                         text: ''
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BottomNav:
+            id: bottom_nav
 
 <ToolsScreen>:
     name: 'tools'
@@ -1013,6 +2029,11 @@ ScreenManager:
                     AutoLabel:
                         text: root.wl_detail
                         font_size: sp(13)
+                Widget:
+                    size_hint_y: None
+                    height: dp(16)
+        BottomNav:
+            id: bottom_nav
 """
 
 
@@ -1055,10 +2076,7 @@ class ConnectionScreen(Screen):
         self.status_color = color
 
     def on_language(self, name: str) -> None:
-        code = {v: k for k, v in LANGUAGES.items()}.get(name)
-        if code and code != current_language():
-            set_language(code)
-            App.get_running_app().refresh_all_texts()
+        App.get_running_app().apply_language(name)
 
     def on_help(self) -> None:
         App.get_running_app().show_popup(t("Подключение и частые ошибки"), t(
@@ -1096,11 +2114,44 @@ class ConnectionScreen(Screen):
         App.get_running_app().connect(ip, pw_input.text)
 
 
+class NavButton(ButtonBehavior, BoxLayout):
+    """Bottom pill-bar button: icon above, label below, green when active."""
+    nav_icon = StringProperty("")
+    nav_text = StringProperty("")
+    nav_target = StringProperty("")
+    nav_icon_box = BooleanProperty(False)
+    active = BooleanProperty(False)
+
+
+class ChipLabel(Label):
+    """Bordered chip label (RAT / band) used in the Log and Charts tabs."""
+    chip_color = ListProperty([1, 1, 1, 1])
+
+
+class LogRow(ButtonBehavior, BoxLayout):
+    """One Registro row: identity line + band/samples line, thin divider.
+
+    Pressable: opens the cell detail popup for that observation."""
+
+
+class BandLockSheet(BoxLayout):
+    """Bottom sheet for Band Lock (Recientes / Rutinas)."""
+    sheet_title = StringProperty("")
+    tab_recent_text = StringProperty("")
+    tab_routines_text = StringProperty("")
+    new_lock_text = StringProperty("")
+    unlock_all_text = StringProperty("")
+
+
 class MonitorScreen(Screen):
     lbl_fullscreen = StringProperty("")
     lbl_sound = StringProperty("")
     lbl_peaks = StringProperty("")
     lbl_menu = StringProperty("")
+    lbl_tools = StringProperty("")
+    lbl_band_lock = StringProperty("")
+    lbl_bars_title = StringProperty("")
+    lbl_ca_title = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
     status_color = ListProperty([0.2, 0.8, 0.4, 1])
     advice_color = ListProperty([0.95, 0.62, 0.25, 1])
@@ -1113,6 +2164,10 @@ class MonitorScreen(Screen):
         self.lbl_sound = t("♪ Звук")
         self.lbl_peaks = t("⟲ Пики")
         self.lbl_menu = t("☰ Меню")
+        self.lbl_tools = t("Инструменты")
+        self.lbl_band_lock = t("Блокировка бэндов")
+        self.lbl_bars_title = t("Сигнал по метрикам")
+        self.lbl_ca_title = t("Агрегация (CA)")
 
 
 class TopScrollScreen(Screen):
@@ -1143,6 +2198,108 @@ class InfoScreen(TopScrollScreen):
         self.lbl_cells_title = t("Лучшие соты за сессию")
         self.lbl_sim_title = t("SIM / Устройство")
         self.lbl_status_title = t("Состояние")
+
+
+class ChartsScreen(TopScrollScreen):
+    """NetMonster-style Charts tab: one mini-graph card per metric."""
+    lbl_title = StringProperty("")
+
+    def on_pre_enter(self, *args: Any) -> None:
+        self.refresh_texts()
+        App.get_running_app().refresh_charts_screen()
+
+    def refresh_texts(self) -> None:
+        self.lbl_title = t("Графики")
+
+
+class MapScreen(TopScrollScreen):
+    """NetMonster-style Map tab — without GPS there are no tower positions.
+
+    The router never reports coordinates, so this screen explains that
+    and lists the observed cells (no locations invented).
+    """
+    lbl_title = StringProperty("")
+    lbl_cells_title = StringProperty("")
+
+    def on_pre_enter(self, *args: Any) -> None:
+        self.refresh_texts()
+        App.get_running_app().refresh_map_screen()
+
+    def refresh_texts(self) -> None:
+        self.lbl_title = t("Карта")
+        self.lbl_cells_title = t("Соседние соты")
+
+
+class CellsScreen(TopScrollScreen):
+    """NetMonster-style Log tab (Registro): observed cells, today first."""
+    lbl_filter = StringProperty("")
+    lbl_survey = StringProperty("")
+    lbl_copy_log = StringProperty("")
+    lbl_detail_title = StringProperty("")
+    lbl_export_csv = StringProperty("")
+
+    def on_pre_enter(self, *args: Any) -> None:
+        self.refresh_texts()
+        App.get_running_app().refresh_cells_screen()
+
+    def refresh_texts(self) -> None:
+        self.lbl_filter = App.get_running_app().filter_label()
+        self.lbl_survey = t("Сканер наблюдений · Beta")
+        self.lbl_copy_log = t("Копировать журнал")
+        self.lbl_detail_title = t("Подробный журнал по бэндам")
+        self.lbl_export_csv = t("Экспорт CSV")
+
+
+class BellIcon(Widget):
+    """Bell drawn with canvas: DejaVu Sans has no bell glyph (🔔)."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        from kivy.graphics import Color, Ellipse, Line
+        app = App.get_running_app()
+        accent = tuple(app.c_accent) if app else (0, 0.72, 0.58, 1)
+        with self.canvas:
+            Color(*accent)
+            self._dome = Ellipse(angle_start=0, angle_end=180)
+            self._flare = Line(width=dp(2))
+            self._clapper = Ellipse()
+            self._knob = Ellipse()
+        self.bind(pos=self._draw, size=self._draw)
+
+    def _draw(self, *_: Any) -> None:
+        w, h = self.size
+        cx = self.x + w / 2
+        dome_w, dome_h = w * 0.62, h * 0.52
+        dome_x = cx - dome_w / 2
+        dome_y = self.y + h * 0.30
+        self._dome.pos = (dome_x, dome_y)
+        self._dome.size = (dome_w, dome_h)
+        self._flare.points = [cx - dome_w * 0.62, dome_y + dp(1),
+                              cx + dome_w * 0.62, dome_y + dp(1)]
+        cl = dp(5)
+        self._clapper.pos = (cx - cl / 2, dome_y - cl - dp(1))
+        self._clapper.size = (cl, cl)
+        knob = dp(5)
+        self._knob.pos = (cx - knob / 2, dome_y + dome_h - dp(2))
+        self._knob.size = (knob, knob)
+
+
+class SettingsRow(ButtonBehavior, BoxLayout):
+    """One Ajustes row: icon tile + title/subtitle + trailing widget."""
+
+
+class SettingsScreen(TopScrollScreen):
+    """NetMonster-style Ajustes screen: preferences rows."""
+    lbl_title = StringProperty("")
+    lbl_prefs = StringProperty("")
+
+    def on_pre_enter(self, *args: Any) -> None:
+        self.refresh_texts()
+        App.get_running_app().refresh_settings_screen()
+
+    def refresh_texts(self) -> None:
+        self.lbl_title = t("Настройки")
+        self.lbl_prefs = t("Предпочтения").upper()
 
 
 class ToolsScreen(TopScrollScreen):
@@ -1213,15 +2370,24 @@ class ToolsScreen(TopScrollScreen):
 # =========================================================
 
 class Hua4GMonApp(App):
-    theme_name = StringProperty('dark')
-    c_bg = ListProperty(THEMES['dark']['c_bg'])
-    c_card = ListProperty(THEMES['dark']['c_card'])
-    c_text = ListProperty(THEMES['dark']['c_text'])
-    c_sub = ListProperty(THEMES['dark']['c_sub'])
-    c_accent = ListProperty(THEMES['dark']['c_accent'])
-    c_button2 = ListProperty(THEMES['dark']['c_button2'])
+    theme_name = StringProperty(DEFAULT_THEME)
+    c_bg = ListProperty(THEMES[DEFAULT_THEME]['c_bg'])
+    c_card = ListProperty(THEMES[DEFAULT_THEME]['c_card'])
+    c_text = ListProperty(THEMES[DEFAULT_THEME]['c_text'])
+    c_sub = ListProperty(THEMES[DEFAULT_THEME]['c_sub'])
+    c_accent = ListProperty(THEMES[DEFAULT_THEME]['c_accent'])
+    c_button2 = ListProperty(THEMES[DEFAULT_THEME]['c_button2'])
+    c_grid = ListProperty(THEMES[DEFAULT_THEME]['c_grid'])
     sound_on = BooleanProperty(False)
+    background_monitoring = BooleanProperty(True)
     lbl_back = StringProperty("")
+    nav_monitor = StringProperty("")
+    nav_charts = StringProperty("")
+    nav_map = StringProperty("")
+    nav_cells = StringProperty("")
+    nav_menu = StringProperty("")
+    nav_info = StringProperty("")
+    nav_tools = StringProperty("")
 
     # ---------- запуск и жизненный цикл ----------
 
@@ -1252,14 +2418,25 @@ class Hua4GMonApp(App):
         self._last_back = 0.0
         self._beep_ev: Any = None
         self.beeper = ToneBeeper()
+        self.cells_filter = 'all'  # Registro filter: all / 4g / 3g / 5g
+        self._recent_locks: list[tuple[int, ...]] = []
+        self._lock_sheet: Any = None
+        self._lock_sheet_tab = 'recent'
         self.lbl_back = t("← Назад")
+        self.nav_monitor = t("Монитор")
+        self.nav_charts = t("Графики")
+        self.nav_map = t("Карта")
+        self.nav_cells = t("Соты")
+        self.nav_menu = t("Меню")
+        self.nav_info = t("Информация")
+        self.nav_tools = t("Сеть")
         self.sm: ScreenManager = Builder.load_string(KV)
         Clock.schedule_interval(self._tick, 0.5)
         return self.sm
 
     def on_pause(self) -> bool:
-        """Свернули приложение: опрос на паузу, звук выключаем."""
-        if self.worker is not None:
+        """Свернули приложение: без фонового мониторинга опрос на паузу."""
+        if not self.background_monitoring and self.worker is not None:
             self.worker.pause()
         self._stop_beeps()
         return True
@@ -1289,6 +2466,10 @@ class Hua4GMonApp(App):
         Window.clearcolor = tuple(self.c_bg)
         self._bands_shown = []          # подписи бэндов — заново, в цвете темы
         self.build_band_checkboxes()
+        self.refresh_nav_highlight()
+        # Ajustes se reconstruye (iconos, textos y fila Tema) para que
+        # el cambio de tema se vea también en la pantalla donde se elige.
+        self.refresh_settings_screen()
         if self.state.last is not None:
             self._render(self.state.last)
         else:
@@ -1298,14 +2479,33 @@ class Hua4GMonApp(App):
         self._bands_shown = []
         self.build_band_checkboxes()
         self.lbl_back = t("← Назад")
-        for name in ('connection', 'monitor', 'info', 'tools'):
+        self.nav_monitor = t("Монитор")
+        self.nav_charts = t("Графики")
+        self.nav_map = t("Карта")
+        self.nav_cells = t("Соты")
+        self.nav_menu = t("Меню")
+        self.nav_info = t("Информация")
+        self.nav_tools = t("Сеть")
+        for name in ('connection', 'monitor', 'charts', 'map', 'cells', 'info', 'tools', 'settings'):
             self.sm.get_screen(name).refresh_texts()
+        self.refresh_nav_highlight()
         self._render_link_state()
         if self.state.last is not None:
             self._render(self.state.last)
 
     def go(self, screen: str) -> None:
         self.sm.current = screen
+        self.refresh_nav_highlight()
+
+    def refresh_nav_highlight(self) -> None:
+        """Active tab in the bottom pill gets the theme accent background."""
+        if getattr(self, 'sm', None) is None:
+            return
+        current = self.sm.current
+        for scr in self.sm.screens:
+            for btn in scr.walk():
+                if btn.__class__.__name__ == 'NavButton':
+                    btn.active = (btn.nav_target == current)
 
     def _on_keyboard(self, window: Any, key: int, *args: Any) -> bool:
         """Системная «Назад» (Esc на десктопе).
@@ -1317,7 +2517,7 @@ class Hua4GMonApp(App):
         if any(isinstance(w, ModalView) for w in window.children):
             return False            # открытый диалог закроется сам
         current = self.sm.current
-        if current in ('info', 'tools'):
+        if current in ('info', 'tools', 'cells', 'charts', 'map', 'settings'):
             self.sm.current = 'monitor'
             return True
         if current == 'monitor':
@@ -1407,6 +2607,9 @@ class Hua4GMonApp(App):
         self._render(Snapshot())
         self._show_last_event()
         self.refresh_info_screen()
+        self.refresh_cells_screen()
+        self.refresh_charts_screen()
+        self.refresh_map_screen()
         worker: SessionWorker | None = None
 
         def mine(fn: Callable[..., None]) -> Callable[..., None]:
@@ -1585,6 +2788,7 @@ class Hua4GMonApp(App):
         ids.status_lbl.text = health
         scr.status_color = hex_to_rgba(color, sun)
         ids.tower_lbl.text = self._tower_summary(snap)
+        self._update_netmonster(snap, score, summary, color)
         cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
         for card, param in zip(cards, self._layout_params(), strict=True):
             self._metric_card(card, param)
@@ -1602,6 +2806,10 @@ class Hua4GMonApp(App):
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
+        if self.sm.current == 'cells':
+            self.refresh_cells_screen()
+        if self.sm.current == 'charts':
+            self.refresh_charts_screen()
 
     def _tower_summary(self, snap: Snapshot) -> str:
         snap = snap.display()
@@ -1621,6 +2829,558 @@ class Hua4GMonApp(App):
             parts.append(t(RAT_LABELS.get(snap.rat, snap.rat)))
         return " · ".join(parts) if parts else "—"
 
+    # ---------- NetMonster-style presentation ----------
+
+    def _update_netmonster(self, snap: Snapshot, score: int, summary: str,
+                           color: str) -> None:
+        """Fill the Live (En vivo) NetMonster header, grid, bars and CA."""
+        scr = self.sm.get_screen('monitor')
+        ids = scr.ids
+        if not ids:
+            return
+        sun = self.theme_name == 'sun'
+        ids['operator_lbl'].text = snap.operator or (
+            snap.plmn or t("Оператор неизвестен"))
+        ids['plmn_lbl'].text = format_plmn(snap.plmn) if snap.plmn else '-'
+        line = rat_line(snap)
+        ids['rat_lbl'].text = f"⚓ {line}" if line != '-' else '-'
+        rows = net_rows_3g(snap) if snap.rat == '3g' else net_rows(snap)
+        trends = {'rssi': 'rssi', 'rsrp': 'rsrp', 'rsrq': 'rsrq', 'snr': 'sinr'}
+        for key, spec in rows.items():
+            row = ids.get(f'net_{key}')
+            if row is None:
+                continue
+            if spec is None:  # 3G: no CQI row
+                row.height = 0
+                row.opacity = 0
+                continue
+            label, value, unit = spec
+            row.n_label = label
+            row.n_value = value
+            row.n_unit = unit
+            row.height = dp(36)
+            row.opacity = 1
+            param = trends.get(key)
+            if param is not None:
+                arrow, arrow_color = trend_arrow(
+                    [float(v) for v in self.state.history.get(param, [])])
+                row.n_trend = arrow
+                row.n_trend_color = hex_to_rgba(arrow_color, sun)
+            else:
+                row.n_trend = ''
+        bar = ids.get('health_bar')
+        if bar is not None:
+            bar.bar_name = t("Здоровье сигнала")
+            bar.bar_value = f"{score}%"
+            bar.bar_status = (t(summary).format(pct=score) if snap.registered
+                              else t(summary))
+            bar.bar_hint = ''
+            bar.bar_pct = score
+            bar.bar_color = hex_to_rgba(color, sun)
+        bars = {b.param: b for b in signal_bars(snap)}
+        for key in ('rsrp', 'sinr', 'rsrq', 'rssi', 'cqi', 'nr_rsrp', 'nr_sinr'):
+            row = ids.get(f'bar_{key}')
+            if row is None:
+                continue
+            b = bars.get(key)
+            if b is None:
+                row.height = 0
+                row.opacity = 0
+                continue
+            row.height = dp(76)
+            row.opacity = 1
+            row.bar_name = b.title
+            row.bar_value = (f"{b.value:g} {b.unit}"
+                             if b.value is not None else '-')
+            row.bar_status = t(b.status) if b.status else ''
+            row.bar_hint = b.explain
+            row.bar_pct = b.pct
+            row.bar_color = hex_to_rgba(b.color, sun)
+        ca = ids.get('ca_lbl')
+        if ca is not None:
+            lines = carrier_lines(snap, t('МГц'))
+            if lines:
+                text = "\n".join(lines)
+                if snap.ca is not None:
+                    text += (f"\n{t('Агрегация (CA)')}: "
+                             f"{t('Активна') if snap.ca else t('Нет')}")
+                ca.text = text
+            elif snap.ca is not None:
+                ca.text = (f"{t('Агрегация (CA)')}: "
+                           f"{t('Активна') if snap.ca else t('Нет')}")
+            else:
+                ca.text = t("Нет данных")
+
+    # ---------- Registro (Log tab) ----------
+
+    def filter_label(self) -> str:
+        if self.cells_filter == 'all':
+            return f"{t('Фильтры')}: {t('Все')}"
+        return f"{t('Фильтры')}: {self.cells_filter.upper()}"
+
+    def _filter_options(self) -> list[str]:
+        options = ['all', '4g', '3g', '5g']
+        for o in self.survey.ranked():
+            band = (o.snap.band_label or '').strip()
+            if band and band not in options:
+                options.append(band)
+        return options
+
+    def cycle_cells_filter(self) -> None:
+        options = self._filter_options()
+        idx = options.index(self.cells_filter) if self.cells_filter in options else -1
+        self.cells_filter = options[(idx + 1) % len(options)]
+        scr = self.sm.get_screen('cells')
+        scr.lbl_filter = self.filter_label()
+        self.refresh_cells_screen()
+
+    def _obs_matches_filter(self, obs: Any) -> bool:
+        rat = obs.snap.rat
+        if self.cells_filter == 'all':
+            return True
+        if self.cells_filter == '4g':
+            return rat in ('lte', 'lte_ca')
+        if self.cells_filter == '3g':
+            return rat == '3g'
+        if self.cells_filter == '5g':
+            return rat in ('nr_nsa', 'nr_sa')
+        return (obs.snap.band_label or '') == self.cells_filter
+
+    def _log_row(self, obs: Any) -> Any:
+        """One Registro row: RAT chip + identity, operator | time, band chip."""
+        from kivy.uix.boxlayout import BoxLayout
+        snap = obs.snap
+        rat = snap.rat
+        gen = ('4G' if rat in ('lte', 'lte_ca') else
+               '5G' if rat in ('nr_nsa', 'nr_sa') else
+               '3G' if rat == '3g' else '2G' if rat == '2g' else '?')
+        row = Factory.LogRow()
+        line1 = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(8))
+        line1.add_widget(Factory.ChipLabel(
+            text=gen, chip_color=(0.87, 0.89, 0.91, 1)))
+        line1.add_widget(Label(
+            text=format_log_identity(snap), font_size=sp(17), bold=True,
+            color=self.c_text, halign='left', valign='middle',
+            text_size=(0, 0)))
+        operator = snap.operator or (
+            format_plmn(snap.plmn) if snap.plmn else '-')
+        line1.add_widget(Label(
+            text=f"{operator} | {format_log_time(obs.last) or '-'}",
+            font_size=sp(15), color=self.c_text, halign='right',
+            valign='middle', text_size=(0, 0)))
+        line1.add_widget(Label(
+            text='›', font_size=sp(20), color=self.c_sub, halign='right',
+            valign='middle', text_size=(0, 0),
+            size_hint_x=None, width=dp(16)))
+        row.add_widget(line1)
+        line2 = BoxLayout(size_hint_y=None, height=dp(26), spacing=dp(8))
+        freq, color = band_chip(snap)
+        if freq:
+            line2.add_widget(Factory.ChipLabel(
+                text=freq, chip_color=hex_to_rgba(color, False)))
+        line2.add_widget(Label(
+            text=t('измерений: {n}').format(n=obs.samples),
+            font_size=sp(14), color=self.c_sub, halign='left',
+            valign='middle', text_size=(0, 0)))
+        row.add_widget(line2)
+        row.bind(on_release=lambda *_: self.open_cell_detail(obs))
+        return row
+
+    def refresh_cells_screen(self) -> None:
+        scr = self.sm.get_screen('cells')
+        ids = scr.ids
+        if not ids:
+            return
+        day_lbl = ids.get('log_day_lbl')
+        if day_lbl is not None:
+            day_lbl.text = t("Сегодня").upper()
+        log = ids.get('log_list')
+        if log is None:
+            return
+        log.clear_widgets()
+        obs = [o for o in self.survey.ranked()
+               if self._obs_matches_filter(o)]
+        obs.sort(key=lambda o: o.last or '', reverse=True)
+        if not obs:
+            log.add_widget(Label(
+                text=t("Нет сот в журнале: включите сканер наблюдений."),
+                font_size=sp(15), color=self.c_sub, halign='left',
+                valign='top', text_size=(log.width - dp(8), None),
+                size_hint_y=None, height=dp(48)))
+            self._refresh_detail_list(ids, [])
+            return
+        today = datetime.date.today().isoformat()
+        groups: dict[str, list] = {}
+        for o in obs:
+            groups.setdefault((o.last or '')[:10], []).append(o)
+        for day in sorted(groups, reverse=True):
+            header = t("Сегодня").upper() if day == today else day
+            log.add_widget(Label(
+                text=header, font_size=sp(18), bold=True, color=self.c_text,
+                halign='left', valign='middle',
+                text_size=(log.width - dp(8), None), size_hint_y=None,
+                height=dp(30)))
+            for o in groups[day]:
+                log.add_widget(self._log_row(o))
+        self._refresh_detail_list(ids, obs)
+
+    def _cells_log_text(self) -> str:
+        parts = ["\n".join(format_observation(o))
+                 for o in self.survey.ranked()]
+        text = "\n\n".join(parts)
+        if self.survey.rows:
+            text += "\n\n" + self.survey.report()
+        return text
+
+    def copy_cells_log(self) -> None:
+        from kivy.core.clipboard import Clipboard
+        text = self._cells_log_text()
+        if not text.strip():
+            self.toast(t("Нет сот в журнале: включите сканер наблюдений."))
+            return
+        Clipboard.copy(text)
+        self.toast(t("Журнал скопирован"))
+
+    def _refresh_detail_list(self, ids: Any, obs: list) -> None:
+        detail = ids.get('detail_list')
+        if detail is None:
+            return
+        detail.clear_widgets()
+        for o in obs:
+            detail.add_widget(self._detail_card(o))
+
+    def _detail_card(self, obs: Any) -> Any:
+        """One detailed per-band card: times, duration, identity, metrics."""
+        from kivy.uix.label import Label
+        d = detail_log(obs)
+        freq = f" · {d['freq']} MHz" if d['freq'] else ''
+        lines = [f"[b]{d['band']}{freq} · {d['tech']}[/b]  {d['identity']}"]
+        lines.append(
+            f"{t('Первый раз')}: {d['first']}  ·  "
+            f"{t('Последний раз')}: {d['last']}")
+        lines.append(
+            f"{t('Длительность')}: {d['duration']}  ·  "
+            f"{t('Измерения')}: {d['samples']}")
+        earfcn = d['earfcn'] if d['earfcn'] is not None else '-'
+        pci = d['pci'] if d['pci'] is not None else '-'
+        lines.append(
+            f"EARFCN: {earfcn}  ·  eNb:CID: {d['enb_cid']}  ·  "
+            f"TAC: {d['tac']}  ·  PCI: {pci}")
+        for key, unit in (('rsrp', 'dBm'), ('sinr', 'dB'), ('rsrq', 'dB'),
+                          ('rssi', 'dBm')):
+            minimum, median, maximum = d[key]
+            if median is None:
+                continue
+            lines.append(
+                f"{key.upper()}: {median:g} [{minimum:g} … {maximum:g}] {unit}")
+        card = Factory.SectionCard()
+        lbl = Label(text="\n".join(lines), markup=True, font_size=sp(14),
+                    color=self.c_text, halign='left', valign='top',
+                    text_size=(600, None), size_hint_y=None)
+        lbl.bind(texture_size=lambda *_: setattr(
+            lbl, 'height', lbl.texture_size[1] + dp(8)))
+        card.bind(width=lambda *_: setattr(
+            lbl, 'text_size', (card.width - dp(24), None)))
+        card.add_widget(lbl)
+        return card
+
+    def export_detail_csv(self) -> None:
+        from kivy.core.clipboard import Clipboard
+        if not self.survey.rows:
+            self.toast(t("Нет сот в журнале: включите сканер наблюдений."))
+            return
+        Clipboard.copy(self.survey.band_log_csv(current_language()))
+        self.toast(t("Подробный CSV скопирован"))
+
+    def _copy_value(self, value: str) -> None:
+        from kivy.core.clipboard import Clipboard
+        Clipboard.copy(value)
+        self.toast(t("Скопировано"))
+
+    def _detail_section(self, title: str,
+                        rows: list[tuple[str, str]]) -> Any:
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        box = BoxLayout(orientation='vertical', size_hint_y=None,
+                        spacing=dp(4))
+        box.height = dp(30) + len(rows) * dp(52)
+        box.add_widget(Label(text=title, font_size=sp(16), bold=True,
+                             color=self.c_accent, halign='left',
+                             valign='middle', text_size=(0, 0),
+                             size_hint_y=None, height=dp(30)))
+        for label, value in rows:
+            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+            row.add_widget(Label(text=label, font_size=sp(15),
+                                 color=self.c_sub, halign='left',
+                                 valign='middle', text_size=(0, 0),
+                                 size_hint_x=0.35))
+            row.add_widget(Label(text=value, font_size=sp(20), bold=True,
+                                 color=self.c_text, halign='left',
+                                 valign='middle', text_size=(0, 0),
+                                 size_hint_x=0.45))
+            copy_btn = Factory.FlatButton(text=t("Копировать"),
+                                          font_size=sp(12), size_hint_x=0.2)
+            copy_btn.bind(on_release=lambda _b, v=value: self._copy_value(v))
+            row.add_widget(copy_btn)
+            box.add_widget(row)
+        return box
+
+    def open_cell_detail(self, obs: Any) -> None:
+        """NetMonster-style cell detail popup: identity / channel / operator."""
+        from kivy.graphics import Color, RoundedRectangle
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.scrollview import ScrollView
+        d = detail_log(obs)
+        snap = obs.snap
+        box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+        with box.canvas.before:
+            Color(*self.c_card)
+            rect = RoundedRectangle(pos=box.pos, size=box.size,
+                                    radius=[dp(16)])
+        box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
+                 size=lambda *_: setattr(rect, 'size', box.size))
+        popup = Popup(title=d['identity'], content=box,
+                      size_hint=(0.92, None), height=dp(560), background='',
+                      title_color=(1, 1, 1, 1),
+                      separator_color=self.c_accent,
+                      separator_height=dp(3))
+        scroll = ScrollView(bar_width=dp(8), scroll_type=['bars', 'content'])
+        content = BoxLayout(orientation='vertical', size_hint_y=None,
+                            spacing=dp(12), padding=dp(4))
+        ci = snap.cell_id if snap.cell_id is not None else snap.nci
+        is_3g = snap.rat == '3g'
+        rnc_cid = f"{ci >> 16}:{ci & 65535}" if is_3g and ci is not None else d['enb_cid']
+        pci = d['pci'] if d['pci'] is not None else '-'
+        content.add_widget(self._detail_section(
+            t('Идентичность').upper(), [
+                ('CI', str(ci) if ci is not None else '-'),
+                ('RNC:CID' if is_3g else 'eNb:CID', rnc_cid),
+                ('LAC' if is_3g else 'TAC', str(d['tac'])),
+                ('PSC' if is_3g else 'PCI', str(pci)),
+            ]))
+        arfcn_label = ('UARFCN' if is_3g else 'NR-ARFCN'
+                       if snap.rat in ('nr_nsa', 'nr_sa') else 'ARFCN'
+                       if snap.rat == '2g' else 'EARFCN')
+        content.add_widget(self._detail_section(
+            t('Канал').upper(), [
+                (arfcn_label, str(d['earfcn'])
+                 if d['earfcn'] is not None else '-'),
+                (t('Номер бэнда'), str(d['band_no']) if d['band_no'] else '-'),
+                (t('Название бэнда'),
+                 f"{d['freq']} MHz" if d['freq'] else '-'),
+            ]))
+        content.add_widget(self._detail_section(
+            t('Оператор').upper(), [
+                ('PLMN', str(d['plmn'])),
+                (t('Имя'), str(d['operator'])),
+            ]))
+        signal_rows = [
+            (t('Первый раз'), str(d['first'])),
+            (t('Последний раз'), str(d['last'])),
+            (t('Длительность'), str(d['duration'])),
+            (t('Измерения'), str(d['samples'])),
+        ]
+        for key, unit in (('rsrp', 'dBm'), ('sinr', 'dB'), ('rsrq', 'dB')):
+            minimum, median, maximum = d[key]
+            if median is None:
+                continue
+            signal_rows.append(
+                (key.upper(), f"{median:g} [{minimum:g} … {maximum:g}] {unit}"))
+        content.add_widget(self._detail_section(
+            t('Сигнал').upper(), signal_rows))
+        content.height = content.minimum_height
+        scroll.add_widget(content)
+        box.add_widget(scroll)
+        popup.open()
+
+    # ---------- Gráficos (Charts tab) ----------
+
+    def refresh_charts_screen(self) -> None:
+        scr = self.sm.get_screen('charts')
+        ids = scr.ids
+        if not ids:
+            return
+        snap = self.state.last or Snapshot()
+        ids['charts_operator'].text = snap.operator or (
+            snap.plmn or t("Оператор неизвестен"))
+        line = rat_line(snap)
+        ids['charts_rat'].text = line if line != '-' else ''
+        ids['charts_cell'].text = (format_log_identity(snap)
+                                   if snap.registered else '-')
+        chip = ids.get('charts_chip')
+        if chip is not None:
+            gen = line.split(' | ')[0] if line != '-' else '-'
+            freq, _color = band_chip(snap)
+            chip.text = f"{gen} | {freq}" if freq else gen
+        units = {'rssi': 'dBm', 'rsrp': 'dBm', 'rsrq': 'dB', 'sinr': 'dB',
+                 'nr_rsrp': 'dBm', 'nr_sinr': 'dB'}
+        sun = self.theme_name == 'sun'
+        for param, unit in units.items():
+            lbl = ids.get(f'chart_{param}_lbl')
+            dot = ids.get(f'chart_{param}_dot')
+            value = snap.metric(param)
+            if lbl is not None:
+                lbl.text = f"{value:g} {unit}" if value is not None else '-'
+            if dot is not None:
+                # Quality dot next to the value (green / yellow / red).
+                base = param[3:] if param.startswith('nr_') else param
+                _st, col, _pc = evaluate_signal(base, value)
+                dot.color = hex_to_rgba(col, sun)
+        self._update_chart_graphs()
+
+    def _update_chart_graphs(self) -> None:
+        scr = self.sm.get_screen('charts')
+        ids = scr.ids
+        if not ids:
+            return
+        stale = self.state.is_stale(time.monotonic(), self.interval)
+        for param in ('rssi', 'rsrp', 'rsrq', 'sinr', 'nr_rsrp', 'nr_sinr'):
+            graph = ids.get(f'chart_{param}')
+            if graph is None:
+                continue
+            graph.set_data(
+                list(self.state.history.get(param, [])), param,
+                self.state.peaks.get(param), stale,
+                list(self.state.history_times.get(param, [])),
+                list(self.state.history.get(comparison_param(param), [])),
+                list(self.state.history_times.get(
+                    comparison_param(param), [])))
+
+    # ---------- Mapa (Map tab, no GPS) ----------
+
+    def refresh_map_screen(self) -> None:
+        scr = self.sm.get_screen('map')
+        ids = scr.ids
+        if not ids:
+            return
+        note = ids.get('map_note_lbl')
+        if note is not None:
+            note.text = (
+                t("Роутер не отдаёт GPS-координаты, поэтому соты нельзя "
+                  "показать на карте.")
+                + "\n" + t("Соты без координат: список ниже — только то, "
+                           "что сообщил модем."))
+        cells = ids.get('map_cells_lbl')
+        if cells is not None:
+            obs = sorted(self.survey.ranked(),
+                         key=lambda o: o.last or '', reverse=True)
+            if not obs:
+                cells.text = t(
+                    "Нет сот в журнале: включите сканер наблюдений.")
+            else:
+                lines = []
+                for o in obs[:50]:
+                    op = o.snap.operator or (
+                        format_plmn(o.snap.plmn) if o.snap.plmn else '-')
+                    lines.append(
+                        f"{format_log_identity(o.snap)} · {op} · "
+                        f"{format_log_time(o.last) or '-'}")
+                cells.text = "\n".join(lines)
+
+    # ---------- Band Lock sheet (Recientes / Rutinas) ----------
+
+    def _record_recent_lock(self, bands: tuple[int, ...]) -> None:
+        bands = tuple(sorted(set(bands)))
+        if not bands:
+            return
+        if bands in self._recent_locks:
+            self._recent_locks.remove(bands)
+        self._recent_locks.insert(0, bands)
+        del self._recent_locks[5:]
+
+    def open_band_lock_sheet(self) -> None:
+        content = Factory.BandLockSheet(
+            sheet_title=t("Блокировка бэндов и каналов").upper(),
+            tab_recent_text=t("Недавние").upper(),
+            tab_routines_text=t("Рутины").upper(),
+            new_lock_text="+ " + t("Создать новый блок"),
+            unlock_all_text=t("Разблокировать всё"))
+        sheet = ModalView(size_hint=(1, None), height=dp(560),
+                          pos_hint={'center_x': 0.5, 'y': 0},
+                          auto_dismiss=True)
+        sheet.add_widget(content)
+        self._lock_sheet = content
+        self._lock_sheet_tab = 'recent'
+        self._render_lock_sheet()
+        sheet.bind(on_dismiss=lambda *_: setattr(self, '_lock_sheet', None))
+        sheet.open()
+
+    def set_lock_sheet_tab(self, tab: str) -> None:
+        self._lock_sheet_tab = tab
+        self._render_lock_sheet()
+
+    def _render_lock_sheet(self) -> None:
+        if self._lock_sheet is None:
+            return
+        body = self._lock_sheet.ids.sheet_body
+        body.clear_widgets()
+        tab = self._lock_sheet_tab
+        recent = self._lock_sheet.ids.tab_recent
+        routines = self._lock_sheet.ids.tab_routines
+        recent.background_color = (self.c_accent if tab == 'recent'
+                                   else self.c_button2)
+        recent.color = (1, 1, 1, 1) if tab == 'recent' else self.c_text
+        routines.background_color = (self.c_accent if tab == 'routines'
+                                     else self.c_button2)
+        routines.color = (1, 1, 1, 1) if tab == 'routines' else self.c_text
+        if tab == 'routines':
+            body.add_widget(Label(
+                text=t("Рутины пока недоступны в этой версии."),
+                font_size=sp(15), color=self.c_sub, halign='left',
+                valign='top', text_size=(body.width - dp(8), None),
+                size_hint_y=None, height=dp(40)))
+            return
+        if not self._recent_locks:
+            body.add_widget(Label(
+                text=t("Нет недавних блокировок: примените одну с экрана "
+                       "Сеть."),
+                font_size=sp(15), color=self.c_sub, halign='left',
+                valign='top', text_size=(body.width - dp(8), None),
+                size_hint_y=None, height=dp(48)))
+            return
+        from kivy.uix.button import Button
+
+        from core.constants import LTE_BAND_TABLE
+        for bands in self._recent_locks:
+            freqs = []
+            for b in bands:
+                name = LTE_BAND_TABLE.get(b, ('', '', 0.0, 0, 0))[0]
+                freqs.append(name.split()[0] if name else f"B{b}")
+            label = ", ".join(f"B{b}" for b in bands)
+            freq_text = ", ".join(freqs)
+            sub = t("Только бэнд") if len(bands) == 1 else t("Только бэнды")
+            btn = Button(
+                text=(f"[b]4G  {label} | {freq_text}   ›[/b]\n"
+                      f"[size=13][color=999999]{sub}[/color][/size]"),
+                markup=True, font_size=sp(17), halign='left',
+                valign='middle', text_size=(body.width - dp(16), None),
+                size_hint_y=None, height=dp(56), background_normal='',
+                background_color=(0, 0, 0, 0), color=self.c_text)
+            btn.bind(on_release=lambda _btn, b=bands:
+                     self._apply_recent_lock(b))
+            body.add_widget(btn)
+
+    def _dismiss_lock_sheet(self) -> None:
+        sheet = self._lock_sheet
+        self._lock_sheet = None
+        if sheet is not None and sheet.parent is not None:
+            sheet.parent.dismiss()
+
+    def _apply_recent_lock(self, bands: tuple[int, ...]) -> None:
+        self._dismiss_lock_sheet()
+        for b, cb in self.band_vars.items():
+            cb.active = b in bands
+        self.go('tools')
+        self.apply_bands()
+
+    def new_band_lock(self) -> None:
+        self._dismiss_lock_sheet()
+        self.go('tools')
+
+    def unlock_all_bands(self) -> None:
+        self._dismiss_lock_sheet()
+        self.reset_bands()
+
     def set_graph_param(self, param: str) -> None:
         self.state.set_trend_param(param)
         if self.state.last is not None:
@@ -1639,6 +3399,7 @@ class Hua4GMonApp(App):
                                 list(self.state.history_times.get(param, [])),
                                 list(self.state.history.get(comparison_param(param), [])),
                                 list(self.state.history_times.get(comparison_param(param), [])))
+        self._update_chart_graphs()
 
     def reset_peaks(self) -> None:
         self.state.reset_peaks()
@@ -1767,22 +3528,218 @@ class Hua4GMonApp(App):
         Clipboard.copy(self.survey.report())
         self.toast(t('Результат скопирован'))
 
-    def open_menu(self) -> None:
+    # ---------- Ajustes (Settings screen) ----------
+
+    def apply_language(self, name: str) -> None:
+        code = {v: k for k, v in LANGUAGES.items()}.get(name)
+        if code and code != current_language():
+            set_language(code)
+            self.refresh_all_texts()
+            self.refresh_settings_screen()
+
+    def theme_label(self) -> str:
+        """Nombre del tema actual: Oscuro, Claro o Predeterminado."""
+        return {'dark': t('Тёмная'), 'sun': t('Светлая'),
+                'default': t('По умолчанию')}[self.theme_name]
+
+    def open_theme_picker(self) -> None:
+        """Selector de tema: Predeterminado (verde NetMonster) u Oscuro
+        (negro cristalino).
+
+        Igual que el selector de idioma: tarjeta verde oscuro, título
+        blanco y separador verde; la opción activa lleva ✓.
+        """
+        from kivy.graphics import Color, RoundedRectangle
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
-        popup = Popup(title=t("Меню"), content=box, size_hint=(0.85, None), height=dp(450))
-        sun = self.theme_name == 'sun'
+        with box.canvas.before:
+            Color(*self.c_card)
+            rect = RoundedRectangle(pos=box.pos, size=box.size,
+                                    radius=[dp(16)])
+        box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
+                 size=lambda *_: setattr(rect, 'size', box.size))
+        popup = Popup(title=t("Тема"), content=box, size_hint=(0.85, None),
+                      height=dp(210), background='',
+                      title_color=(1, 1, 1, 1),
+                      separator_color=self.c_accent,
+                      separator_height=dp(3))
+        options = [
+            (t('По умолчанию'), DEFAULT_THEME),
+            (t('Тёмная'), 'dark'),
+        ]
+        for label, name in options:
+            text = ('✓ ' + label if name == self.theme_name else label)
+            btn = Factory.FlatButton(text=text, font_size=sp(17),
+                                     size_hint_y=None, height=dp(56))
+            btn.bind(on_release=lambda _b, n=name: (
+                popup.dismiss(), self.apply_theme(n),
+                self.refresh_settings_screen()))
+            box.add_widget(btn)
+        popup.open()
+
+    def open_language_picker(self) -> None:
+        from kivy.graphics import Color, RoundedRectangle
+        from kivy.uix.boxlayout import BoxLayout
+        box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+        with box.canvas.before:
+            Color(*self.c_card)
+            rect = RoundedRectangle(pos=box.pos, size=box.size,
+                                    radius=[dp(16)])
+        box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
+                 size=lambda *_: setattr(rect, 'size', box.size))
+        popup = Popup(title=t("Язык"), content=box, size_hint=(0.85, None),
+                      height=dp(260), background='',
+                      title_color=(1, 1, 1, 1),
+                      separator_color=self.c_accent,
+                      separator_height=dp(3))
+        for name in LANGUAGES.values():
+            btn = Factory.FlatButton(text=name, font_size=sp(17),
+                                     size_hint_y=None, height=dp(56))
+            btn.bind(on_release=lambda _b, n=name: (
+                popup.dismiss(), self.apply_language(n)))
+            box.add_widget(btn)
+        popup.open()
+
+    def toggle_notifications_sound(self) -> None:
+        """Notifications row: the app's alert channel is sound.
+
+        A persistent Android notification needs a foreground service,
+        which this app does not have; the row toggles sound alerts.
+        """
+        if not self.beeper.available:
+            self.toggle_sound()  # toasts that sound is unavailable
+            return
+        self.toggle_sound()
+        self.toast(t("Звук включён") if self.sound_on
+                   else t("Звук выключен"))
+        self.refresh_settings_screen()
+
+    def _settings_icon_tile(self, icon: str | None) -> Any:
+        from kivy.graphics import Color, RoundedRectangle
+        from kivy.uix.anchorlayout import AnchorLayout
+        from kivy.uix.label import Label
+        tile = AnchorLayout(size_hint=(None, None), size=(dp(56), dp(56)),
+                            anchor_x='center', anchor_y='center')
+        with tile.canvas.before:
+            Color(*self.c_button2)
+            rect = RoundedRectangle(pos=tile.pos, size=tile.size,
+                                    radius=[dp(14)])
+        tile.bind(pos=lambda *_: setattr(rect, 'pos', tile.pos),
+                  size=lambda *_: setattr(rect, 'size', tile.size))
+        if icon is None:
+            tile.add_widget(Factory.BellIcon(size_hint=(None, None),
+                                             size=(dp(34), dp(34))))
+        else:
+            tile.add_widget(Label(text=icon, font_size=sp(26),
+                                  color=self.c_accent, halign='center',
+                                  valign='middle', text_size=(0, 0),
+                                  size_hint=(None, None), size=(dp(34), dp(34))))
+        return tile
+
+    def _trailing_state(self, text: str, icon: str) -> Any:
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        box = BoxLayout(spacing=dp(8), size_hint_x=None, width=dp(110))
+        if text:
+            box.add_widget(Label(text=text, font_size=sp(16),
+                                 color=self.c_sub, halign='right',
+                                 valign='middle', text_size=(0, 0)))
+        else:
+            box.add_widget(Label(text='', size_hint_x=1))
+        box.add_widget(Label(text=icon, font_size=sp(24), color=self.c_sub,
+                             halign='center', valign='middle', text_size=(0, 0),
+                             size_hint_x=None, width=dp(24)))
+        return box
+
+    def _settings_row(self, icon: str | None, title: str, subtitle: str,
+                      trailing: Any | None,
+                      on_press: Any | None) -> Any:
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        row = Factory.SettingsRow()
+        row.add_widget(self._settings_icon_tile(icon))
+        texts = BoxLayout(orientation='vertical', spacing=dp(2))
+        texts.add_widget(Label(text=title, font_size=sp(19), bold=True,
+                               color=self.c_text, halign='left',
+                               valign='middle', text_size=(0, 0),
+                               size_hint_y=None, height=dp(28)))
+        sub = Label(text=subtitle, font_size=sp(14), color=self.c_sub,
+                    halign='left', valign='top', size_hint_y=None,
+                    height=dp(44))
+        sub.bind(width=lambda *_: setattr(sub, 'text_size', (sub.width, None)))
+        texts.add_widget(sub)
+        row.add_widget(texts)
+        if trailing is not None:
+            row.add_widget(trailing)
+        if on_press is not None:
+            row.bind(on_release=lambda *_: on_press())
+        return row
+
+    def refresh_settings_screen(self) -> None:
+        from kivy.uix.switch import Switch
+        if getattr(self, 'sm', None) is None:
+            return
+        scr = self.sm.get_screen('settings')
+        ids = scr.ids
+        if not ids:
+            return
+        rows_box = ids.get('settings_rows')
+        if rows_box is None:
+            return
+        rows_box.clear_widgets()
+        sw = Switch(active=self.background_monitoring,
+                    size_hint=(None, None), size=(dp(64), dp(36)))
+        sw.bind(active=lambda _i, v: setattr(
+            self, 'background_monitoring', v))
+        rows_box.add_widget(self._settings_row(
+            '◎', t('Мониторизация в фоновом режиме'),
+            t('Продолжать мониторинг, когда приложение свёрнуто'),
+            sw, None))
+        rows_box.add_widget(self._settings_row(
+            '⚙', t('Общие'), t('Данные сот, журнал и вид карты'),
+            self._trailing_state('', '›'), lambda: self.go('info')))
+        rows_box.add_widget(self._settings_row(
+            None, t('Уведомления'),
+            t('Постоянное уведомление и неизвестные соты'),
+            None, self.toggle_notifications_sound))
+        rows_box.add_widget(self._settings_row(
+            '◐', t('Тема'), self.theme_label(),
+            self._trailing_state('', '›'), self.open_theme_picker))
+        lang_name = LANGUAGES.get(current_language(), 'Español')
+        rows_box.add_widget(self._settings_row(
+            '⊕', t('Язык'), lang_name,
+            self._trailing_state('', '↗'), self.open_language_picker))
+
+    def open_menu(self) -> None:
+        """Original menu, all options kept — NetMonster styling only:
+        dark green-black card, white title, green separator, flat buttons."""
+        from kivy.graphics import Color, RoundedRectangle
+        from kivy.uix.boxlayout import BoxLayout
+        box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+        with box.canvas.before:
+            Color(*self.c_card)
+            rect = RoundedRectangle(pos=box.pos, size=box.size,
+                                    radius=[dp(16)])
+        box.bind(pos=lambda *_: setattr(rect, 'pos', box.pos),
+                 size=lambda *_: setattr(rect, 'size', box.size))
+        popup = Popup(title=t("Меню"), content=box, size_hint=(0.85, None),
+                      height=dp(520), background='',
+                      title_color=(1, 1, 1, 1),
+                      separator_color=self.c_accent,
+                      separator_height=dp(3))
         items = [
             (t("ℹ Информация"), lambda: self.go('info')),
+            (t("Графики"), lambda: self.go('charts')),
+            (t("Карта"), lambda: self.go('map')),
+            (t("Соты"), lambda: self.go('cells')),
             (t('Сканер наблюдений · Beta'), self.open_survey),
             (t("⚙ Сеть"), lambda: self.go('tools')),
-            (t("☀ Солнце: выкл") if sun else t("☀ Солнце: вкл"),
-             lambda: self.apply_theme('dark' if sun else 'sun')),
+            (t("Настройки"), lambda: self.go('settings')),
             (t("⏏ Отключиться"), self.confirm_disconnect),
         ]
         for text, action in items:
-            btn = Button(text=text, font_size=sp(17), size_hint_y=None, height=dp(56))
+            btn = Factory.FlatButton(text=text, font_size=sp(17),
+                                     size_hint_y=None, height=dp(48))
             btn.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
             box.add_widget(btn)
         popup.open()
@@ -2095,6 +4052,7 @@ class Hua4GMonApp(App):
 
             def apply():
                 if self.session is session:
+                    self._record_recent_lock(tuple(selected))
                     self._net_action(lambda: session.apply_plan(plan),
                                      lambda ok: self._after_write(ok, t("Band Lock применён: {bands}.").format(bands=names)),
                                      t("Применяю Band Lock…"))

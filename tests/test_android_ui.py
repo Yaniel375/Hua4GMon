@@ -133,14 +133,20 @@ def test_info_screen_live(app):
 
 def test_pause_stops_polling_and_resume_continues(app):
     ensure_online(app)
-    app.on_pause()
-    time.sleep(0.3)
-    pump(lambda: False, 0.3)
-    n = len(app.state.log)
-    pump(lambda: False, 1.2)
-    assert len(app.state.log) <= n + 1
-    app.on_resume()
-    assert pump(lambda: len(app.state.log) > n + 1)
+    # Pause-on-minimize only applies with background monitoring off.
+    app.background_monitoring = False
+    try:
+        app.on_pause()
+        time.sleep(0.3)
+        pump(lambda: False, 0.3)
+        n = len(app.state.log)
+        pump(lambda: False, 1.2)
+        assert len(app.state.log) <= n + 1
+        app.on_resume()
+        assert pump(lambda: len(app.state.log) > n + 1)
+    finally:
+        app.background_monitoring = True
+        app.on_resume()
 
 
 def test_sun_theme(app):
@@ -516,3 +522,611 @@ def test_lte_nr_graphs_main_and_fullscreen(app):
         pump(lambda: False, 0.1)
         app.set_graph_param('sinr')
         app.worker.resume()
+
+
+def test_netmonster_live_grid(app):
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    assert pump(lambda: ids['net_rsrp'].n_value != '-', 10)
+    assert ids['operator_lbl'].text != ''
+    assert ids['rat_lbl'].text.startswith('⚓')
+    assert ids['health_bar'].bar_value.endswith('%')
+    assert ids['bar_rsrp'].bar_name == 'RSRP'
+    assert ids['bar_rsrp'].bar_value.endswith('dBm')
+    assert isinstance(ids['ca_lbl'].text, str)
+    assert app.nav_monitor == 'Монитор'
+    assert app.nav_charts == 'Графики'
+    assert app.nav_map == 'Карта'
+    assert app.nav_cells == 'Соты'
+    assert app.nav_menu == 'Меню'
+    assert app.sm.get_screen('monitor').lbl_menu == '☰ Меню'
+
+
+def test_netmonster_3g_grid(app):
+    snap = core.Snapshot(registration='registered', rat='3g', cell_id=328771,
+                         rssi=-113, connection=901, data_enabled=True)
+    app._update_netmonster(snap, 50, 'Хороший сигнал: {pct}%', '#00b894')
+    ids = app.sm.get_screen('monitor').ids
+    assert ids['rat_lbl'].text == '⚓ 3G | UMTS'
+    assert ids['net_ci'].n_value == '328771'
+    assert ids['net_enb'].n_label == 'CID' and ids['net_enb'].n_value == '1091'
+    assert ids['net_tac'].n_label == 'RNC' and ids['net_tac'].n_value == '5'
+    assert ids['net_pci'].n_label == 'LAC' and ids['net_pci'].n_value == '-'
+    assert ids['net_rsrp'].n_label == 'UARFCN'
+    assert ids['net_rsrq'].n_label == 'RSCP'
+    assert ids['net_snr'].n_label == 'Ec/No'
+    assert ids['net_cqi'].height == 0
+
+
+def test_cells_log_and_filter(app):
+    ensure_online(app)
+    app.open_survey()
+    app._start_survey()
+    try:
+        assert pump(lambda: len(app.survey.rows) > 0, 10)
+        app.go('cells')
+        app.refresh_cells_screen()
+        ids = app.sm.get_screen('cells').ids
+        assert ids['log_day_lbl'].text == 'СЕГОДНЯ'
+        rows = [w for w in ids['log_list'].children
+                if w.__class__.__name__ == 'LogRow']
+        assert rows
+        app.cycle_cells_filter()
+        assert app.cells_filter == '4g'
+        assert '4G' in app.filter_label()
+        app.cycle_cells_filter()
+        assert app.cells_filter == '3g'
+        app.cycle_cells_filter()
+        assert app.cells_filter == '5g'
+        app.refresh_cells_screen()
+        # The demo modem reports 5G NSA, so rows show up under the 5G filter.
+        assert [w for w in ids['log_list'].children
+                if w.__class__.__name__ == 'LogRow']
+        app.cells_filter = 'all'
+        assert 'измерений' in app._cells_log_text()
+    finally:
+        app._stop_survey()
+        from kivy.core.window import Window
+        from kivy.uix.popup import Popup
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
+def test_charts_screen(app):
+    ensure_online(app)
+    assert pump(lambda: len(app.state.history.get('rsrp', [])) > 0, 10)
+    app.go('charts')
+    app.refresh_charts_screen()
+    ids = app.sm.get_screen('charts').ids
+    assert ids['charts_operator'].text != ''
+    assert ids['chart_rsrp_lbl'].text.endswith('dBm')
+    assert ids['chart_rsrp_dot'].text == '•'
+    assert len(ids['chart_rsrp']._values) > 0
+    assert len(ids['chart_sinr']._values) > 0
+    assert len(ids['chart_rssi']._values) > 0
+    # 2-column grid: RSSI, RSRP, RSRQ, SNR + NR cards.
+    for param in ('rssi', 'rsrp', 'rsrq', 'sinr', 'nr_rsrp', 'nr_sinr'):
+        assert f'chart_{param}' in ids
+        assert f'chart_{param}_lbl' in ids
+        assert f'chart_{param}_dot' in ids
+
+
+def test_map_screen_has_no_gps(app):
+    app.go('map')
+    app.refresh_map_screen()
+    ids = app.sm.get_screen('map').ids
+    assert 'GPS' in ids['map_note_lbl'].text
+    assert isinstance(ids['map_cells_lbl'].text, str)
+
+
+def test_band_lock_sheet(app):
+    app.open_band_lock_sheet()
+    try:
+        sheet = app._lock_sheet
+        assert sheet is not None
+        assert sheet.sheet_title == 'БЛОКИРОВКА БЭНДОВ И КАНАЛОВ'
+        assert sheet.tab_recent_text == 'НЕДАВНИЕ'
+        assert sheet.tab_routines_text == 'РУТИНЫ'
+        app.set_lock_sheet_tab('routines')
+        body_texts = [w.text for w in sheet.ids.sheet_body.children
+                      if hasattr(w, 'text')]
+        assert any('Рутины' in t for t in body_texts)
+        app._record_recent_lock((3,))
+        app._record_recent_lock((3, 8))
+        app.set_lock_sheet_tab('recent')
+        btn_texts = [w.text for w in sheet.ids.sheet_body.children
+                     if hasattr(w, 'text')]
+        assert any('B3 | 1800' in t for t in btn_texts)
+        assert any('B3, B8 | 1800, 900' in t for t in btn_texts)
+        assert any('Только бэнд' in t for t in btn_texts)
+    finally:
+        app._dismiss_lock_sheet()
+        pump(lambda: False, 0.1)
+    assert app._lock_sheet is None
+
+
+def test_bottom_nav_highlights_active_tab(app):
+    icons = {'charts': '↗', 'map': '▦', 'monitor': '◎', 'cells': '▤',
+             'menu': '☰'}
+    for name in ('monitor', 'charts', 'map', 'cells', 'info', 'tools'):
+        app.go(name)
+        pump(lambda: False, 0.1)
+        scr = app.sm.get_screen(name)
+        btns = [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton']
+        assert len(btns) == 5, name
+        for btn in btns:
+            assert btn.nav_icon == icons[btn.nav_target]
+            assert btn.active == (btn.nav_target == name), (
+                name, btn.nav_target)
+            assert btn.nav_icon_box == (btn.nav_target == 'charts')
+
+
+def test_menu_kept_and_styled(app):
+    from kivy.core.window import Window
+    from kivy.graphics import RoundedRectangle
+    from kivy.uix.popup import Popup
+    app.apply_theme('default')  # the menu label shows the current theme
+    app.go('monitor')
+    pump(lambda: False, 0.3)
+    scr = app.sm.get_screen('monitor')
+    assert scr.lbl_menu == '☰ Меню'
+    nav_btns = [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton'
+                and w.nav_text == app.nav_menu]
+    assert nav_btns, 'Menú button missing from the bottom navigation'
+    assert nav_btns[0].nav_icon == '☰'
+    nav_btns[0].dispatch('on_release')
+    try:
+        assert pump(lambda: any(isinstance(w, Popup)
+                                for w in Window.children), 5)
+        popup = next(w for w in Window.children if isinstance(w, Popup))
+        assert popup.title == 'Меню'
+        assert list(popup.separator_color) == [0, 0.72, 0.58, 1]
+        assert popup.background == ''
+        box = popup.content
+        assert any(isinstance(i, RoundedRectangle)
+                   for i in box.canvas.before.children)
+        texts = [w.text for w in box.children if hasattr(w, 'text')]
+        for expected in ('ℹ Информация', 'Графики', 'Карта', 'Соты',
+                         'Сканер наблюдений · Beta', '⚙ Сеть',
+                         'Настройки', '⏏ Отключиться'):
+            assert expected in texts, expected
+        assert not [x for x in texts if x.startswith('◐ Тема:')], (
+            'el tema solo se elige en Ajustes, no en el Menú')
+        info_btn = next(w for w in box.children if w.text == 'ℹ Информация')
+        info_btn.dispatch('on_release')
+        assert app.sm.current == 'info'
+    finally:
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
+def test_themes_change_whole_app(app):
+    """Cada tema cambia la app completa: colores de la app, fondo de la
+    ventana, barra inferior, cabecera y tarjetas de Ajustes, chip de
+    Gráficos y separador del Menú — nada queda con el color del otro
+    tema."""
+    from kivy.core.window import Window
+    from kivy.graphics import Color
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    import android_main
+
+    def canvas_color(widget):
+        colors = [i for i in widget.canvas.before.children
+                  if isinstance(i, Color)]
+        assert colors, f'sin Color en canvas.before de {widget}'
+        return list(colors[0].rgba)
+
+    for name in ('default', 'dark'):
+        theme = android_main.THEMES[name]
+        app.apply_theme(name)
+        pump(lambda: False, 0.2)
+        for key in ('c_bg', 'c_card', 'c_text', 'c_sub', 'c_accent',
+                    'c_button2', 'c_grid'):
+            assert list(getattr(app, key)) == theme[key], (name, key)
+        assert list(Window.clearcolor) == list(theme['c_bg'])
+
+        # Ajustes se reconstruye al cambiar el tema: cabecera, tarjeta
+        # de icono y fila Tema llevan los colores del tema activo.
+        app.refresh_settings_screen()
+        scr = app.sm.get_screen('settings')
+        scr.refresh_texts()
+        header = next(w for w in scr.walk()
+                      if isinstance(w, Label) and w.text == scr.lbl_prefs)
+        assert list(header.color) == list(theme['c_accent'])
+        rows = [w for w in scr.walk()
+                if w.__class__.__name__ == 'SettingsRow']
+        assert rows
+        tile = next(w for w in rows[0].walk()
+                    if w.__class__.__name__ == 'AnchorLayout')
+        assert canvas_color(tile) == list(theme['c_button2'])
+        assert app.theme_label() in [w.text for w in scr.walk()
+                                     if isinstance(w, Label)]
+
+        # Barra inferior: el botón activo lleva el acento del tema.
+        app.go('monitor')
+        pump(lambda: False, 0.2)
+        monitor = app.sm.get_screen('monitor')
+        active = next(w for w in monitor.walk()
+                      if w.__class__.__name__ == 'NavButton' and w.active)
+        expected_pill = [round(c * 0.45, 4) for c in theme['c_accent'][:3]] + [1]
+        assert canvas_color(active) == pytest.approx(expected_pill, abs=1e-3)
+
+        # Gráficos: el chip de banda lleva el acento del tema y el fondo
+        # del gráfico, el color de fondo del tema.
+        app.go('charts')
+        pump(lambda: False, 0.2)
+        charts = app.sm.get_screen('charts')
+        assert list(charts.ids.charts_chip.chip_color) == list(theme['c_accent'])
+        graphs = [w for w in charts.walk()
+                  if w.__class__.__name__ == 'SignalGraph']
+        assert graphs, 'la pantalla Gráficos no tiene gráficos'
+        graph_colors = [list(i.rgba) for g in graphs for i in g.canvas.children
+                        if isinstance(i, Color)]
+        assert list(theme['c_graph_bg']) in graph_colors
+
+        # Menú: tarjeta y separador con los colores del tema.
+        app.open_menu()
+        try:
+            assert pump(lambda: any(isinstance(w, Popup)
+                                    for w in Window.children), 5)
+            menu = next(w for w in Window.children if isinstance(w, Popup))
+            assert list(menu.separator_color) == list(theme['c_accent'])
+            assert canvas_color(menu.content) == list(theme['c_card'])
+        finally:
+            for widget in list(Window.children):
+                if isinstance(widget, Popup):
+                    widget.dismiss()
+            pump(lambda: False, 0.1)
+    app.apply_theme('default')
+
+
+def test_menu_has_no_theme_item(app):
+    """Los temas solo se eligen en Ajustes: el Menú ya no lleva
+    botón «Tema: …» (el selector sigue abriéndose desde la fila
+    Tema de Ajustes, ver test_settings_screen)."""
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+    app.apply_theme('default')
+    app.go('monitor')
+    pump(lambda: False, 0.3)
+    scr = app.sm.get_screen('monitor')
+    nav_btns = [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton'
+                and w.nav_text == app.nav_menu]
+    nav_btns[0].dispatch('on_release')
+    try:
+        assert pump(lambda: any(isinstance(w, Popup)
+                                for w in Window.children), 5)
+        menu = next(w for w in Window.children if isinstance(w, Popup))
+        texts = [w.text for w in menu.content.children
+                 if hasattr(w, 'text')]
+        assert len(texts) == 8
+        assert not [x for x in texts if 'Тема' in x]
+    finally:
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
+def test_three_theme_palettes(app):
+    """Oscuro = negro cristalino, Predeterminado = verde NetMonster
+    (el tema con el que arranca la app). La paleta blanca «Sol» sigue
+    definida para el contraste a pleno sol, pero ya no se ofrece."""
+    import android_main
+    assert android_main.DEFAULT_THEME == 'default'
+    app.apply_theme('dark')
+    assert app.theme_name == 'dark'
+    assert app.c_bg == [0, 0, 0, 1]
+    assert app.c_card == [0.08, 0.08, 0.09, 1]
+    app.apply_theme('sun')
+    assert app.c_bg == [1, 1, 1, 1]
+    app.apply_theme('default')
+    assert app.theme_name == 'default'
+    assert app.c_bg == [0.04, 0.08, 0.06, 1]
+    assert app.c_card == [0.09, 0.13, 0.10, 1]
+    assert app.theme_label() == 'По умолчанию'
+    app.apply_theme('dark')
+    assert app.theme_label() == 'Тёмная'
+    app.apply_theme('default')  # restore the startup theme
+
+
+def test_bottom_nav_fixed_on_all_screens(app):
+    from kivy.metrics import dp
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.widget import Widget
+    expected = [app.nav_menu, app.nav_cells, app.nav_monitor,
+                app.nav_map, app.nav_charts]
+    for name in ('monitor', 'charts', 'map', 'cells', 'info', 'tools'):
+        app.go(name)
+        pump(lambda: False, 0.5)  # let the slide transition finish
+        scr = app.sm.get_screen(name)
+        nav_btns = [w for w in scr.walk()
+                    if w.__class__.__name__ == 'NavButton'
+                    and w.nav_text == app.nav_menu]
+        assert nav_btns, f'no fixed nav on {name}'
+        nav = nav_btns[0].parent
+        assert [c.nav_text for c in nav.children] == expected, name
+        assert nav.height == dp(64), (name, nav.height)
+        # The bar must not live inside any ScrollView: it stays put.
+        # (WindowSDL is its own parent, so guard the walk with a set.)
+        chain = []
+        node = nav_btns[0]
+        seen = set()
+        while node is not None and id(node) not in seen:
+            seen.add(id(node))
+            chain.append(type(node).__name__)
+            node = node.parent
+        assert 'ScrollView' not in chain, (name, chain)
+        assert nav.y == scr.children[0].padding[3], (name, nav.y)
+        assert nav.height > 0 and nav_btns[0].opacity == 1
+        # Scroll the content to the bottom: the bar must not move.
+        scrolls = [w for w in scr.walk() if isinstance(w, ScrollView)]
+        assert scrolls, f'no ScrollView on {name}'
+        before = nav_btns[0].to_window(*nav_btns[0].pos)
+        for scroll in scrolls:
+            scroll.scroll_y = 0
+        pump(lambda: False, 0.2)
+        after = nav_btns[0].to_window(*nav_btns[0].pos)
+        assert abs(before[0] - after[0]) < 1 and abs(before[1] - after[1]) < 1
+        assert nav.y == scr.children[0].padding[3], (name, nav.y)
+        # Clearance at the end of the content so the bar never covers it.
+        content = scrolls[0].children[0]
+        last = content.children[0]  # last added == first in children
+        assert last.__class__ is Widget and last.height >= 15, (name, last)
+
+
+def test_cells_detail_and_csv(app):
+    from kivy.uix.label import Label
+    ensure_online(app)
+    app.open_survey()
+    app._start_survey()
+    try:
+        assert pump(lambda: len(app.survey.rows) > 0, 10)
+        app.go('cells')
+        app.refresh_cells_screen()
+        ids = app.sm.get_screen('cells').ids
+        assert ids['detail_list'].children, 'no detail cards'
+        card_text = ''
+        for card in ids['detail_list'].children:
+            for w in card.walk(restrict=True):
+                if isinstance(w, Label) and w.text:
+                    card_text += w.text + '\n'
+        assert 'RSRP' in card_text
+        assert 'Первый раз' in card_text
+        assert 'Длительность' in card_text
+        csv_text = app.survey.band_log_csv('es')
+        assert 'tech;band' in csv_text.splitlines()[0]
+        app.export_detail_csv()
+        band = next(iter(app.survey.rows.values())).snap.band_label
+        if band:
+            while app.cells_filter != band:
+                app.cycle_cells_filter()
+            app.refresh_cells_screen()
+            assert [w for w in ids['log_list'].children
+                    if w.__class__.__name__ == 'LogRow']
+            assert ids['detail_list'].children
+    finally:
+        app.cells_filter = 'all'
+        app._stop_survey()
+        from kivy.core.window import Window
+        from kivy.uix.popup import Popup
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
+def test_cell_detail_popup(app):
+    from kivy.core.window import Window
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    from core.scanner import Observation
+    snap = core.Snapshot(registration='registered', rat='3g', cell_id=328771,
+                         rssi=-113, connection=901, data_enabled=True)
+    obs = Observation(snap=snap, source='test',
+                      first='2026-11-26T01:00:00',
+                      last='2026-11-26T02:00:00', samples=3)
+    obs.add(snap, '2026-11-26T02:00:00')
+    app.open_cell_detail(obs)
+    pump(lambda: False, 0.3)
+    popups = [w for w in Window.children if isinstance(w, Popup)]
+    assert popups, 'detail popup did not open'
+    popup = popups[0]
+    assert '5:1091' in popup.title
+    text = ''
+    for w in popup.walk(restrict=True):
+        if isinstance(w, Label) and w.text:
+            text += w.text + '\n'
+    assert 'ИДЕНТИЧНОСТЬ' in text
+    assert 'КАНАЛ' in text
+    assert 'ОПЕРАТОР' in text
+    assert '328771' in text
+    assert '5:1091' in text
+    copy_btns = [w for w in popup.walk(restrict=True)
+                 if w.__class__.__name__ == 'FlatButton'
+                 and w.text == 'Копировать']
+    assert copy_btns
+    copy_btns[0].dispatch('on_release')
+    popup.dismiss()
+    pump(lambda: False, 0.1)
+
+
+def _settings_row_by_title(rows, title):
+    from kivy.uix.label import Label
+    for row in rows:
+        if any(isinstance(w, Label) and w.text == title
+               for w in row.walk(restrict=True)):
+            return row
+    raise AssertionError(f'no settings row {title!r}')
+
+
+def test_settings_screen(app):
+    from kivy.core.window import Window
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.switch import Switch
+    app.go('settings')
+    pump(lambda: False, 0.3)
+    assert app.sm.current == 'settings'
+    scr = app.sm.get_screen('settings')
+    assert scr.lbl_title == 'Настройки'
+    assert scr.lbl_prefs == 'ПРЕДПОЧТЕНИЯ'
+    rows = [w for w in scr.walk()
+            if w.__class__.__name__ == 'SettingsRow']
+    assert len(rows) == 5
+    texts = ' | '.join(w.text for w in scr.walk()
+                       if isinstance(w, Label) and w.text)
+    for expected in ('Мониторизация в фоновом режиме', 'Общие',
+                     'Уведомления', 'Тема', 'Язык'):
+        assert expected in texts, expected
+    assert 'По умолчанию' in texts  # default theme: NetMonster green
+    assert 'Русский' in texts or 'Español' in texts
+    # The bottom nav does not belong to the settings screen.
+    assert not [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton']
+    # Background monitoring switch drives the real preference.
+    sw = next(w for w in scr.walk() if isinstance(w, Switch))
+    assert sw.active is True
+    assert app.background_monitoring is True
+    sw.active = False
+    assert app.background_monitoring is False
+    sw.active = True
+    assert app.background_monitoring is True
+    # Theme row opens the picker; choosing Oscuro switches to the
+    # crystalline black, Predeterminado restores the NetMonster green.
+    def theme_row_now():
+        rows_now = [w for w in scr.walk()
+                    if w.__class__.__name__ == 'SettingsRow']
+        return _settings_row_by_title(rows_now, 'Тема')
+
+    def open_picker():
+        theme_row_now().dispatch('on_release')
+        assert pump(lambda: any(
+            isinstance(w, Popup) and w.title == 'Тема'
+            for w in Window.children), 5)
+        return next(w for w in Window.children
+                    if isinstance(w, Popup) and w.title == 'Тема')
+
+    def pick(popup, text):
+        btn = next(w for w in popup.content.children if w.text == text)
+        btn.dispatch('on_release')
+
+    picker = open_picker()
+    texts = [w.text for w in picker.content.children if hasattr(w, 'text')]
+    for expected in ('✓ По умолчанию', 'Тёмная'):
+        assert expected in texts, expected
+    assert 'Светлая' not in texts  # solo Predeterminado y Oscuro
+    pick(picker, 'Тёмная')
+    assert app.theme_name == 'dark'
+    pump(lambda: False, 0.2)
+    assert 'Тёмная' in ' | '.join(
+        w.text for w in scr.walk()
+        if isinstance(w, Label) and w.text)
+    picker = open_picker()
+    pick(picker, 'По умолчанию')
+    assert app.theme_name == 'default'
+    pump(lambda: False, 0.2)
+    assert 'По умолчанию' in ' | '.join(
+        w.text for w in scr.walk()
+        if isinstance(w, Label) and w.text)
+    app.apply_theme('default')  # restore the startup theme
+    # General row opens the info screen.
+    _settings_row_by_title(rows, 'Общие').dispatch('on_release')
+    assert app.sm.current == 'info'
+    app.go('settings')
+    pump(lambda: False, 0.3)
+    # Back arrow and the system Back key return to Monitor.
+    back = next(w for w in scr.walk()
+                if w.__class__.__name__ == 'FlatButton'
+                and w.text == '←')
+    back.dispatch('on_release')
+    assert app.sm.current == 'monitor'
+    app.go('settings')
+    pump(lambda: False, 0.3)
+    assert app._on_keyboard(Window, 27) is True
+    assert app.sm.current == 'monitor'
+
+
+def test_settings_language_picker(app):
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+
+    import core
+    app.go('settings')
+    pump(lambda: False, 0.3)
+    scr = app.sm.get_screen('settings')
+    rows = [w for w in scr.walk()
+            if w.__class__.__name__ == 'SettingsRow']
+    _settings_row_by_title(rows, 'Язык').dispatch('on_release')
+    assert pump(lambda: any(isinstance(w, Popup)
+                            for w in Window.children), 5)
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    assert popup.title == 'Язык'
+    en_btn = next(w for w in popup.walk()
+                  if w.__class__.__name__ == 'FlatButton'
+                  and w.text == 'English')
+    en_btn.dispatch('on_release')
+    assert core.current_language() == 'en'
+    assert scr.lbl_title == 'Settings'
+    _settings_row_by_title(
+        [w for w in scr.walk()
+         if w.__class__.__name__ == 'SettingsRow'],
+        'Language').dispatch('on_release')
+    assert pump(lambda: any(isinstance(w, Popup)
+                            for w in Window.children), 5)
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    es_btn = next(w for w in popup.walk()
+                  if w.__class__.__name__ == 'FlatButton'
+                  and w.text == 'Español')
+    es_btn.dispatch('on_release')
+    assert core.current_language() == 'es'
+    assert scr.lbl_title == 'Ajustes'
+    core.set_language('ru')
+    app.refresh_all_texts()
+
+
+def test_settings_background_pause(app):
+    ensure_online(app)
+    assert app.worker is not None
+    app.background_monitoring = False
+    app.on_pause()
+    assert app.worker._running.is_set() is False
+    app.on_resume()
+    assert app.worker._running.is_set() is True
+    app.background_monitoring = True
+    app.on_pause()
+    assert app.worker._running.is_set() is True
+    app.on_resume()
+
+
+def test_menu_opens_settings(app):
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+    scr = app.sm.get_screen('monitor')
+    nav_btns = [w for w in scr.walk()
+                if w.__class__.__name__ == 'NavButton'
+                and w.nav_text == app.nav_menu]
+    nav_btns[0].dispatch('on_release')
+    try:
+        assert pump(lambda: any(isinstance(w, Popup)
+                                for w in Window.children), 5)
+        popup = next(w for w in Window.children if isinstance(w, Popup))
+        settings_btn = next(
+            w for w in popup.content.children if w.text == 'Настройки')
+        settings_btn.dispatch('on_release')
+        assert app.sm.current == 'settings'
+    finally:
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)

@@ -58,7 +58,7 @@ android.minapi = 24
 # памяти 16 КБ (часть Android 15+) APK может не запуститься — ограничение
 # закреплённого стека, см. HARDWARE_VALIDATION.md.
 android.ndk = 25b
-android.archs = arm64-v8a,armeabi-v7a
+android.archs = arm64-v8a
 
 # Release — APK (по умолчанию buildozer делает AAB для Google Play; для
 # раздачи через GitHub Releases нужен APK). Подпись — переменными
