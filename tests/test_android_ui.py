@@ -593,6 +593,60 @@ def test_network_summary_only_warns_on_problem(app):
     assert 'Нет регистрации' in app._tower_summary(replace(snap, registration='unregistered'))
 
 
+def test_original_mejorado_style_everywhere(app):
+    """Estilo 1 en toda la app: encabezados de sección verdes con línea,
+    botones con esquinas redondeadas y menú/diálogos con el mismo lenguaje."""
+    from kivy.core.window import Window
+    from kivy.factory import Factory
+    from kivy.graphics import RoundedRectangle
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    ensure_online(app)
+    # Conexión: tarjeta con encabezado verde y línea bajo el título.
+    app.go('connection')
+    conn = app.sm.get_screen('connection')
+    heads = [w for w in conn.walk() if isinstance(w, Factory.SectionHead)]
+    assert heads and heads[0].text == core.t("Подключение")
+    assert any(isinstance(w, Factory.GreenRule) for w in conn.walk())
+    actions = [w for w in conn.walk() if isinstance(w, Factory.ActionButton)]
+    assert actions
+    for btn in actions:
+        assert any(isinstance(c, RoundedRectangle) for c in btn.canvas.before.children)
+    # Señal: línea verde bajo el estado y títulos de sección en verde.
+    app.go('monitor')
+    scr = app.sm.get_screen('monitor')
+    assert any(isinstance(w, Factory.GreenRule) for w in scr.walk())
+    # Información y Red: encabezados de sección verdes con línea.
+    for name in ('info', 'tools'):
+        app.go(name)
+        screen = app.sm.get_screen(name)
+        heads = [w for w in screen.walk() if isinstance(w, Factory.SectionHead)]
+        assert heads, name
+        for head in heads:
+            label = next(c for c in head.children if isinstance(c, Label))
+            assert list(label.color) == list(app.c_accent)
+        assert any(isinstance(w, Factory.GreenRule) for w in screen.walk())
+    # Menú: botones planos redondeados y separador verde en el popup.
+    app.go('monitor')
+    app.open_menu()
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    assert list(popup.separator_color) == list(app.c_accent)
+    menu_buttons = [w for w in popup.walk() if isinstance(w, Button)]
+    assert len(menu_buttons) == 5
+    assert all(isinstance(b, Factory.FlatButton) for b in menu_buttons)
+    popup.dismiss()
+    # Confirmación: botón «No» plano y botón «Sí» de acción verde.
+    type(app).confirm(app, "Título", "Mensaje", "Sí", lambda: None)
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    dialog_buttons = [w for w in popup.walk() if isinstance(w, Button)]
+    assert any(isinstance(b, Factory.FlatButton) for b in dialog_buttons)
+    assert any(isinstance(b, Factory.ActionButton) for b in dialog_buttons)
+    popup.dismiss()
+    app.go('monitor')
+
+
 def test_lte_nr_graphs_main_and_fullscreen(app):
     from kivy.core.window import Window
     from kivy.uix.popup import Popup

@@ -619,23 +619,81 @@ KV = """
     halign: 'center'
     valign: 'middle'
     background_normal: ''
-    background_color: app.c_accent
+    background_down: ''
+    background_color: 0, 0, 0, 0
     color: app.c_on_accent
     font_size: sp(16)
     size_hint_y: None
     height: dp(52)
+    canvas.before:
+        Color:
+            rgba: app.c_accent if self.state == 'normal' else (0.04, 0.5, 0.3, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(10)]
 
 <FlatButton@Button>:
     background_normal: ''
-    background_color: app.c_button2
+    background_down: ''
+    background_color: 0, 0, 0, 0
     color: app.c_text
     font_size: sp(16)
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(10)]
     canvas.after:
         Color:
             rgba: app.c_btn_border
         Line:
-            rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1)
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
             width: dp(1)
+
+# Original mejorado: línea fina verde tenue (separador de sección) y
+# línea verde sólida de 2 dp (bajo el encabezado, como en la vista previa).
+<Hairline@Widget>:
+    size_hint_y: None
+    height: dp(1)
+    canvas:
+        Color:
+            rgba: app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.35
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<GreenRule@Widget>:
+    size_hint_y: None
+    height: dp(2)
+    canvas:
+        Color:
+            rgba: app.c_accent
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+# Original mejorado: título de sección en verde, en mayúsculas, con la
+# línea fina extendiéndose a la derecha (como «INFORMACIÓN LTE» del preview).
+<SectionHead@BoxLayout>:
+    text: ''
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(26)
+    spacing: dp(10)
+    Label:
+        text: root.text
+        font_size: sp(13)
+        bold: True
+        color: app.c_accent
+        size_hint_x: None
+        width: self.texture_size[0]
+        halign: 'left'
+        valign: 'middle'
+    Hairline:
+        pos_hint: {'center_y': 0.5}
 
 <SectionCard@BoxLayout>:
     orientation: 'vertical'
@@ -650,16 +708,6 @@ KV = """
             pos: self.pos
             size: self.size
             radius: [dp(12)]
-
-<SectionTitle@Label>:
-    font_size: sp(19)
-    bold: True
-    color: app.c_text
-    size_hint_y: None
-    height: dp(34)
-    text_size: self.width, None
-    halign: 'left'
-    valign: 'middle'
 
 <AutoLabel@Label>:
     font_size: sp(15)
@@ -754,7 +802,7 @@ KV = """
         on_release: app.go('monitor')
     Label:
         text: root.title
-        font_size: sp(18)
+        font_size: sp(22)
         bold: True
         color: app.c_text
 
@@ -794,38 +842,48 @@ ScreenManager:
                 color: app.c_sub
                 size_hint_y: None
                 height: dp(26)
-            AutoLabel:
-                text: root.lbl_ip
-            BoxLayout:
-                size_hint_y: None
-                height: dp(50)
-                spacing: dp(8)
+            GreenRule:
+            SectionCard:
+                SectionHead:
+                    text: root.lbl_conn_title
+                AutoLabel:
+                    text: root.lbl_ip
+                    font_size: sp(12)
+                    bold: True
+                    color: app.c_sub
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(50)
+                    spacing: dp(8)
+                    TextInput:
+                        id: ip_input
+                        text: '192.168.8.1'
+                        multiline: False
+                        font_size: sp(18)
+                        background_color: app.c_card
+                        foreground_color: app.c_text
+                        cursor_color: app.c_accent
+                    FlatButton:
+                        text: root.lbl_find
+                        size_hint_x: 0.45
+                        font_size: sp(15)
+                        on_release: root.on_find()
+                AutoLabel:
+                    text: root.lbl_pw
+                    font_size: sp(12)
+                    bold: True
+                    color: app.c_sub
                 TextInput:
-                    id: ip_input
-                    text: '192.168.8.1'
+                    id: pw_input
+                    password: True
                     multiline: False
                     font_size: sp(18)
+                    size_hint_y: None
+                    height: dp(50)
                     background_color: app.c_card
                     foreground_color: app.c_text
                     cursor_color: app.c_accent
-                FlatButton:
-                    text: root.lbl_find
-                    size_hint_x: 0.45
-                    font_size: sp(15)
-                    on_release: root.on_find()
-            AutoLabel:
-                text: root.lbl_pw
-            TextInput:
-                id: pw_input
-                password: True
-                multiline: False
-                font_size: sp(18)
-                size_hint_y: None
-                height: dp(50)
-                background_color: app.c_card
-                foreground_color: app.c_text
-                cursor_color: app.c_accent
-                on_text_validate: root.on_connect()
+                    on_text_validate: root.on_connect()
             ActionButton:
                 text: root.lbl_connect
                 on_release: root.on_connect()
@@ -905,6 +963,7 @@ ScreenManager:
             height: self.texture_size[1] + dp(2)
             text_size: self.width, None
             halign: 'center'
+        GreenRule:
         ScrollView:
             bar_width: dp(8)
             scroll_type: ['bars', 'content']
@@ -964,7 +1023,7 @@ ScreenManager:
                         text: root.lbl_connections
                         font_size: sp(13)
                         bold: True
-                        color: app.c_text
+                        color: app.c_accent
                         size_hint_x: 0.7
                         text_size: self.width, None
                         halign: 'left'
@@ -1044,7 +1103,7 @@ ScreenManager:
                         text: root.lbl_radio_tools
                         font_size: sp(13)
                         bold: True
-                        color: app.c_text
+                        color: app.c_accent
                         size_hint_x: 0.7
                         text_size: self.width, None
                         halign: 'left'
@@ -1098,7 +1157,7 @@ ScreenManager:
                         text: root.lbl_network_details
                         font_size: sp(13)
                         bold: True
-                        color: app.c_text
+                        color: app.c_accent
                         size_hint_x: 0.7
                         text_size: self.width, None
                         halign: 'left'
@@ -1200,6 +1259,7 @@ ScreenManager:
         orientation: 'vertical'
         Header:
             title: root.lbl_title
+        GreenRule:
         ScrollView:
             id: content_scroll
             bar_width: dp(8)
@@ -1211,25 +1271,25 @@ ScreenManager:
                 padding: dp(10)
                 spacing: dp(10)
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_tower_title
                     InfoLabel:
                         id: tower_block
                         text: ''
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_cells_title
                     InfoLabel:
                         id: cells_block
                         text: ''
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_sim_title
                     InfoLabel:
                         id: sim_block
                         text: ''
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_status_title
                     InfoLabel:
                         id: status_block
@@ -1247,6 +1307,7 @@ ScreenManager:
         orientation: 'vertical'
         Header:
             title: root.lbl_title
+        GreenRule:
         ScrollView:
             id: content_scroll
             bar_width: dp(8)
@@ -1263,7 +1324,7 @@ ScreenManager:
                     bold: True
                     height: (self.texture_size[1] + dp(6)) if self.text else 0
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_bandlock
                     HintLabel:
                         text: root.hint_bandlock
@@ -1295,7 +1356,7 @@ ScreenManager:
                             text: root.lbl_restore
                             on_release: app.restore_bands()
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_antenna
                     Spinner:
                         id: antenna_spinner
@@ -1308,7 +1369,7 @@ ScreenManager:
                         text: root.lbl_apply_antenna
                         on_release: app.apply_antenna(antenna_spinner.text)
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_router
                     HintLabel:
                         text: root.hint_router
@@ -1328,7 +1389,7 @@ ScreenManager:
                         height: dp(52)
                         on_release: app.copy_diagnostics()
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_whitelist
                     HintLabel:
                         text: root.hint_whitelist
@@ -1352,6 +1413,7 @@ ScreenManager:
 
 class ConnectionScreen(Screen):
     subtitle = StringProperty("")
+    lbl_conn_title = StringProperty("")
     lbl_ip = StringProperty("")
     lbl_pw = StringProperty("")
     lbl_find = StringProperty("")
@@ -1368,8 +1430,10 @@ class ConnectionScreen(Screen):
 
     def refresh_texts(self) -> None:
         self.subtitle = t("Портативный монитор LTE/5G Huawei")
-        self.lbl_ip = t("IP адрес:")
-        self.lbl_pw = t("Пароль:")
+        self.lbl_conn_title = t("Подключение")
+        # Original mejorado: etiquetas de campo en mayúsculas, pequeñas y grises.
+        self.lbl_ip = t("IP адрес:").upper()
+        self.lbl_pw = t("Пароль:").upper()
         self.lbl_find = t("Найти")
         self.lbl_connect = t("Подключиться")
         self.lbl_lang = t("Язык:")
@@ -2075,9 +2139,17 @@ class Hua4GMonApp(App):
 
     # ---------- меню и диалоги ----------
 
+    def _style_popup(self, popup: Popup) -> Popup:
+        """Popup con el lenguaje Original mejorado: fondo de tarjeta,
+        título en blanco y separador verde (como la línea del encabezado)."""
+        popup.background_color = self.c_card
+        popup.title_color = self.c_text
+        popup.separator_color = self.c_accent
+        return popup
+
     def open_survey(self) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         from kivy.uix.textinput import TextInput
         box = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(6))
         for items in (((t('Старт'), self._start_survey), (t('Стоп'), self._stop_survey)),
@@ -2085,14 +2157,15 @@ class Hua4GMonApp(App):
                        (t('Копировать результат'), self._copy_survey))):
             bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
             for title, action in items:
-                button = Button(text=title, font_size=sp(14))
+                button = Factory.FlatButton(text=title, font_size=sp(14))
                 button.bind(on_release=lambda _b, fn=action: fn())
                 bar.add_widget(button)
             box.add_widget(bar)
         self._survey_text = TextInput(readonly=True, font_size=sp(14), multiline=True)
         box.add_widget(self._survey_text)
-        popup = Popup(title=t('Сканер наблюдений · Beta'), content=box, size_hint=(0.97, 0.95))
-        close = Button(text=t('← Назад'), size_hint_y=None, height=dp(46))
+        popup = self._style_popup(Popup(title=t('Сканер наблюдений · Beta'),
+                                        content=box, size_hint=(0.97, 0.95)))
+        close = Factory.FlatButton(text=t('← Назад'), size_hint_y=None, height=dp(46))
         close.bind(on_release=lambda _b: popup.dismiss())
         box.add_widget(close)
         popup.bind(on_dismiss=lambda _p: setattr(self, '_survey_text', None))
@@ -2161,10 +2234,11 @@ class Hua4GMonApp(App):
         self.toast(t('Результат скопирован'))
 
     def open_menu(self) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
-        popup = Popup(title=t("Меню"), content=box, size_hint=(0.85, None), height=dp(450))
+        popup = self._style_popup(Popup(title=t("Меню"), content=box,
+                                        size_hint=(0.85, None), height=dp(450)))
         sun = self.theme_name == 'sun'
         items = [
             (t("ℹ Информация"), lambda: self.go('info')),
@@ -2175,26 +2249,26 @@ class Hua4GMonApp(App):
             (t("⏏ Отключиться"), self.confirm_disconnect),
         ]
         for text, action in items:
-            btn = Button(text=text, font_size=sp(17), size_hint_y=None, height=dp(56),
-                         background_normal='', background_color=self.c_button2,
-                         color=self.c_text)
+            btn = Factory.FlatButton(text=text, font_size=sp(17),
+                                     size_hint_y=None, height=dp(56))
             btn.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
             box.add_widget(btn)
         popup.open()
 
     def confirm(self, title: str, message: str, yes_text: str,
                 on_yes: Callable[[], None]) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         from kivy.uix.label import Label
         content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
         msg = Label(text=message, halign='center', valign='middle', font_size=sp(15))
         msg.bind(size=lambda i, v: setattr(i, 'text_size', v))
         content.add_widget(msg)
         btns = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(10))
-        popup = Popup(title=title, content=content, size_hint=(0.92, 0.55))
-        no = Button(text=t("← Назад"), font_size=sp(16))
-        yes = Button(text=yes_text, font_size=sp(16), background_color=(0.8, 0.4, 0.15, 1))
+        popup = self._style_popup(Popup(title=title, content=content,
+                                        size_hint=(0.92, 0.55)))
+        no = Factory.FlatButton(text=t("← Назад"), font_size=sp(16), size_hint_x=1)
+        yes = Factory.ActionButton(text=yes_text, font_size=sp(16), size_hint_x=1)
         no.bind(on_release=lambda *a: popup.dismiss())
         yes.bind(on_release=lambda *a: (popup.dismiss(), on_yes()))
         btns.add_widget(no)
@@ -2215,7 +2289,8 @@ class Hua4GMonApp(App):
                  texture_size=lambda i, ts: setattr(i, 'height', ts[1]))
         sv = ScrollView()
         sv.add_widget(lbl)
-        Popup(title=title, content=sv, size_hint=(0.92, 0.8)).open()
+        self._style_popup(Popup(title=title, content=sv,
+                                size_hint=(0.92, 0.8))).open()
 
     def toast(self, text: str, seconds: float = 2.0) -> None:
         from kivy.core.window import Window
@@ -2232,21 +2307,21 @@ class Hua4GMonApp(App):
         Clock.schedule_once(lambda dt: Window.remove_widget(lbl), seconds)
 
     def open_fullscreen_graph(self) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         inner = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
         graph = PinchGraph()
-        close = Button(text=t("← Назад"), size_hint_y=None, height=dp(48))
+        close = Factory.FlatButton(text=t("← Назад"), size_hint_y=None, height=dp(48))
         inner.add_widget(graph)
         controls = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(4))
-        auto = Button(text=t("Авто"), font_size=sp(14))
+        auto = Factory.FlatButton(text=t("Авто"), font_size=sp(14))
         auto.bind(on_release=lambda *a: graph.auto())
         controls.add_widget(auto)
         controls.add_widget(close)
         inner.add_widget(controls)
         self._fs_graph = graph
-        popup = Popup(title='', separator_height=0, content=RotatedBox(inner),
-                      size_hint=(0.98, 0.96))
+        popup = self._style_popup(Popup(title='', separator_height=0, content=RotatedBox(inner),
+                                        size_hint=(0.98, 0.96)))
         def dismissed(*_args: Any) -> None:
             graph.release_touches()
             self._fs_graph = None
@@ -2368,7 +2443,7 @@ class Hua4GMonApp(App):
         row_h = dp(44)
         for band in self._band_list:
             cb = CheckBox(size_hint=(None, None), width=dp(40), height=row_h,
-                          active=band in checked)
+                          active=band in checked, color=self.c_accent)
             lbl = Label(text=lte_band_label(band, t("МГц")), color=self.c_text,
                         halign='left', valign='middle', size_hint_y=None, height=row_h)
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))

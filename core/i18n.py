@@ -773,6 +773,7 @@ EN.update({
     'Ранг MIMO LTE': 'LTE MIMO rank',
     'Ранг MIMO NR': 'NR MIMO rank',
     'Нет подтверждённых данных': 'No confirmed data',
+    'Подключение': 'Connection',
 })
 
 
@@ -1093,6 +1094,7 @@ ES: dict[str, str] = {
     'Ранг MIMO LTE': 'Rango MIMO LTE',
     'Ранг MIMO NR': 'Rango MIMO NR',
     'Нет подтверждённых данных': 'Sin datos confirmados',
+    'Подключение': 'Conexión',
     'СИГНАЛ': 'SEÑAL',
     'ОБНОВЛЕНО ТОЛЬКО ЧТО': 'ACTUALIZADO AHORA MISMO',
     'АКТИВНЫЕ СОЕДИНЕНИЯ': 'CONEXIONES ACTIVAS',
