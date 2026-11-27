@@ -12,3 +12,4 @@ idna==3.20
 charset-normalizer==3.5.2
 xmltodict==1.0.4
 pycryptodomex==3.24.2
+kivymd==1.2.0

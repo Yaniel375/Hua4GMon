@@ -21,7 +21,7 @@ import re
 import sys
 
 # Рецепты python-for-android: версию задаёт закреплённый p4a, не requirements.txt.
-P4A_RECIPES = frozenset({"python3", "kivy", "pycryptodome"})
+P4A_RECIPES = frozenset({"python3", "kivy", "pycryptodome", "pillow"})
 # Только для Windows: на Android вместо него рецепт pycryptodome.
 WINDOWS_ONLY = frozenset({"pycryptodomex"})
 

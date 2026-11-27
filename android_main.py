@@ -79,6 +79,8 @@ from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.widget import Widget
 from kivy.utils import escape_markup, platform
+from kivymd.app import MDApp
+from kivymd.uix.button import MDRaisedButton  # noqa: F401  (используется в KV: кнопка «Пики»)
 
 from core import (
     ANTENNA_MODES,
@@ -1182,8 +1184,9 @@ ScreenManager:
             size_hint_y: None
             height: dp(56)
             spacing: dp(6)
-            FlatButton:
+            MDRaisedButton:
                 text: root.lbl_peaks
+                size_hint: 1, 1
                 on_release: app.reset_peaks()
             FlatButton:
                 text: root.lbl_menu
@@ -1561,7 +1564,7 @@ class ToolsScreen(TopScrollScreen):
 # ПРИЛОЖЕНИЕ
 # =========================================================
 
-class Hua4GMonApp(App):
+class Hua4GMonApp(MDApp):
     theme_name = StringProperty('dark')
     c_bg = ListProperty(THEMES['dark']['c_bg'])
     c_card = ListProperty(THEMES['dark']['c_card'])
@@ -1581,6 +1584,9 @@ class Hua4GMonApp(App):
         Window.clearcolor = tuple(self.c_bg)
         Window.softinput_mode = 'below_target'
         Window.bind(on_keyboard=self._on_keyboard)
+        # KivyMD: tema oscuro con acento verde, como la piel de la app.
+        self.theme_cls.theme_style = 'Dark'
+        self.theme_cls.primary_palette = 'Green'
         if os.path.exists(_FONT_PATH):
             bold = _FONT_BOLD_PATH if os.path.exists(_FONT_BOLD_PATH) else _FONT_PATH
             LabelBase.register(name='Roboto', fn_regular=_FONT_PATH, fn_bold=bold)

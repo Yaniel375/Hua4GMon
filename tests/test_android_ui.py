@@ -95,13 +95,28 @@ def test_graph_param_reorders_cards(app):
 def test_signal_screen_has_no_sound_button(app):
     """La pantalla Señal ya no tiene botón de sonido: solo Picos y Menú."""
     from kivy.uix.button import Button
+    from kivymd.uix.button import MDRaisedButton
     ensure_online(app)
     scr = app.sm.get_screen('monitor')
-    texts = [w.text for w in scr.walk() if isinstance(w, Button)]
+    texts = [w.text for w in scr.walk() if isinstance(w, (Button, MDRaisedButton))]
     assert not any('Звук' in text for text in texts)
     assert any('Пики' in text for text in texts)
     assert any('Меню' in text for text in texts)
     assert not hasattr(scr, 'lbl_sound')
+
+
+def test_app_is_mdapp_with_peaks_md_button(app):
+    """Prueba KivyMD: la app es MDApp (tema oscuro, acento verde) y Picos es MDRaisedButton."""
+    from kivymd.app import MDApp
+    from kivymd.uix.button import MDRaisedButton
+    ensure_online(app)
+    assert isinstance(app, MDApp)
+    assert app.theme_cls.theme_style == 'Dark'
+    assert app.theme_cls.primary_palette == 'Green'
+    scr = app.sm.get_screen('monitor')
+    peaks = [w for w in scr.walk() if isinstance(w, MDRaisedButton)]
+    assert len(peaks) == 1
+    assert 'Пики' in peaks[0].text
 
 
 def test_signal_screen_has_no_spectrum(app):
