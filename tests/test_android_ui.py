@@ -125,6 +125,65 @@ def test_signal_tabs_and_new_sections(app):
     assert ids.conn_count_lbl.text == '(1)'
 
 
+def test_signal_metric_bar_uses_quality_pct(app):
+    """Cada tarjeta muestra una barra con el porcentaje de calidad existente."""
+    from kivy.metrics import dp
+    from kivy.uix.widget import Widget
+
+    from core.signal_analysis import evaluate_signal
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
+    for card, param in zip(cards, app._layout_params(), strict=True):
+        _label, _color, pct = evaluate_signal(param.replace('nr_', ''),
+                                              app.state.current(param))
+        assert card.m_pct == pct
+        assert 0 <= card.m_pct <= 100
+        assert any(isinstance(child, Widget) and child.height == dp(5)
+                   for child in card.children)
+
+
+def test_signal_ca_segment_highlighted(app):
+    """El tramo CA de la línea de la torre resalta en verde con markup."""
+    ensure_online(app)
+    snap = core.Snapshot(registration='registered', connection=901,
+                         data_enabled=True, rsrp=-86, sinr=13, bands=(3, 1),
+                         freq_mhz=1815, cell_id=46111500, pci=287,
+                         enodeb=180123, sector=12, tac='12345',
+                         operator='MegaFon', plmn='25002', rat='lte',
+                         earfcn=1300, dl_bandwidth='20MHz')
+    app._render(snap)
+    text = app.sm.get_screen('monitor').ids.tower_lbl.text
+    assert 'CA B1' in text
+    assert '[color=' in text and '[/color]' in text
+    assert 'PCI' in text
+
+
+def test_signal_graph_fill_mesh_has_no_vcolor(app):
+    """El relleno del gráfico usa 4 números por vértice (sin vColor).
+
+    Con vColor el relleno salía invisible o como un triángulo gigante
+    fuera del gráfico con mucho historial.
+    """
+    from kivy.graphics import Mesh
+    ensure_online(app)
+    app.worker.pause()
+    try:
+        pump(lambda: False, 0.15)
+        app.refresh_graph()
+        pump(lambda: False, 0.15)
+        graph = app.sm.get_screen('monitor').ids.signal_graph
+        meshes = [c for c in graph.canvas.children if isinstance(c, Mesh)]
+        assert meshes
+        segs = graph.viewport.segments(False)
+        assert segs
+        for mesh in meshes:
+            assert len(mesh.vertices) == (len(segs) + 1) * 2 * 4
+            assert len(mesh.indices) == len(segs) * 6
+    finally:
+        app.worker.resume()
+
+
 def test_band_lock_restore_and_antenna(app):
     ensure_online(app)
     modem = app.demo_modem
@@ -499,18 +558,21 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
 @pytest.mark.parametrize('language', ['ru', 'en', 'es'])
 def test_metric_captions_fit_small_cards(app, size, language):
     from kivy.factory import Factory
+    from kivy.uix.label import Label
     core.set_language(language)
     card = Factory.MetricCard(size_hint=(None, None), size=size)
     card.m_name = 'RSRP'
     card.m_value = '-119.5'
     card.m_status = core.t('Нет данных')
     card.m_peak = core.t('Пик: {v} (Δ {d})').format(v='-109.5', d='-10.25')
+    # La barra de calidad es un Widget sin texto: solo importan las etiquetas.
+    labels = [c for c in card.children if isinstance(c, Label)]
     try:
         assert pump(lambda: all(label.text and label.texture_size[0] <= label.width + 1
                                and label.texture_size[1] <= label.height + 1
-                               for label in card.children))
+                               for label in labels))
         assert card.ids.peak_label.text.replace('\n', ' ') == card.m_peak
-        for label in card.children:
+        for label in labels:
             assert label.x >= card.x and label.right <= card.right
             assert label.y >= card.y and label.top <= card.top
     finally:

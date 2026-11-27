@@ -390,28 +390,34 @@ class SignalGraph(Widget):
         Malla de triángulos entre la línea y la base del gráfico: arriba
         el color de la línea con alfa 0,28 y abajo transparente. Se dibuja
         antes que la línea, dentro del mismo canvas.
+
+        El color va en la instrucción Color y el degradado en una textura
+        1×2 (fila de arriba opaca, fila de abajo transparente): el
+        atributo vColor en el formato de vértices no se dibuja bien en
+        Kivy (el relleno salía invisible o como un triángulo gigante fuera
+        del gráfico con mucho historial), así que no se usa.
         """
-        from kivy.graphics import Mesh
+        from kivy.graphics import Color, Mesh
         from kivy.graphics.texture import Texture
         if self._fill_tex is None:
-            self._fill_tex = Texture.create(size=(1, 1))
-            self._fill_tex.blit_buffer(b'\xff\xff\xff\xff', colorfmt='rgba',
-                                       bufferfmt='ubyte')
+            self._fill_tex = Texture.create(size=(1, 2))
+            self._fill_tex.blit_buffer(b'\xff\xff\xff\x00\xff\xff\xff\xff',
+                                       colorfmt='rgba', bufferfmt='ubyte')
         pts = [(x0 + plot_w * segs[0][0], y0 + plot_h * segs[0][1])]
         pts += [(x0 + plot_w * s[2], y0 + plot_h * s[3]) for s in segs]
         verts: list[float] = []
         indices: list[int] = []
         for i, (px, py) in enumerate(pts):
-            verts += [px, py, 0, 0, line_col[0], line_col[1], line_col[2], 0.28,
-                      px, y0, 0, 0, line_col[0], line_col[1], line_col[2], 0.0]
+            verts += [px, py, 0, 1, px, y0, 0, 0]
             if i:
                 j = 2 * (i - 1)
                 indices += [j, j + 1, j + 2, j + 1, j + 3, j + 2]
+        Color(line_col[0], line_col[1], line_col[2], 0.28)
         Mesh(texture=self._fill_tex, vertices=verts, indices=indices,
              mode='triangles',
              vertex_format=[('vPosition', 2, 'float'),
-                            ('vTexCoords0', 2, 'float'),
-                            ('vColor', 4, 'float')])
+                            ('vTexCoords0', 2, 'float')])
+        Color(*line_col)
 
     def _redraw(self) -> None:
         from kivy.graphics import Color, Ellipse, Line, Rectangle
@@ -809,6 +815,7 @@ KV = """
     m_status: ''
     m_peak: ''
     m_color: 0.5, 0.5, 0.5, 1
+    m_pct: 0
     value_size: sp(34)
     padding: dp(6)
     spacing: dp(1)
@@ -819,6 +826,12 @@ KV = """
             pos: self.pos
             size: self.size
             radius: [dp(10)]
+    canvas.after:
+        Color:
+            rgba: app.c_btn_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
+            width: dp(1)
     CardLabel:
         caption: root.m_name
         base_size: sp(14)
@@ -830,6 +843,20 @@ KV = """
         bold: True
         color: root.m_color
         size_hint_y: 0.45
+    Widget:
+        size_hint_y: None
+        height: dp(5)
+        canvas.before:
+            Color:
+                rgba: 0.55, 0.55, 0.55, 0.3
+            Rectangle:
+                pos: self.pos
+                size: self.size
+            Color:
+                rgba: root.m_color
+            Rectangle:
+                pos: self.pos
+                size: self.width * root.m_pct / 100, self.height
     CardLabel:
         caption: root.m_status
         base_size: sp(13)
@@ -838,7 +865,7 @@ KV = """
     CardLabel:
         id: peak_label
         caption: root.m_peak
-        base_size: sp(14)
+        base_size: sp(13)
         color: app.c_sub
         halign: 'center'
         size_hint_y: 0.25
@@ -1103,7 +1130,7 @@ ScreenManager:
                             text: 'sinr'
                             values: root.graph_values
                             size_hint_x: 0.5
-                            font_size: sp(15)
+                            font_size: sp(14)
                             on_text: app.set_graph_param(self.text)
                         FlatButton:
                             text: root.lbl_fullscreen
@@ -1180,6 +1207,7 @@ ScreenManager:
                                 text: '—'
                                 font_size: sp(13)
                                 color: app.c_sub
+                                markup: True
                                 size_hint_y: None
                                 height: self.texture_size[1] + dp(2)
                                 text_size: self.width, None
@@ -2073,11 +2101,12 @@ class Hua4GMonApp(App):
 
     def _metric_card(self, card: Any, param: str) -> None:
         val = self.state.current(param)
-        label, color, _ = evaluate_signal(param.replace('nr_', ''), val)
+        label, color, pct = evaluate_signal(param.replace('nr_', ''), val)
         card.m_name = PARAM_TITLES.get(param, param.upper())
         card.m_value = fmt_num(val)
         card.m_status = t(label)
         card.m_color = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
+        card.m_pct = pct
         peak, delta = self.state.peaks.get(param), self.state.delta_to_peak(param)
         card.m_peak = "" if peak is None or delta is None else \
             t("Пик: {v} (Δ {d})").format(v=fmt_num(peak), d=f"{delta:+g}")
@@ -2105,7 +2134,15 @@ class Hua4GMonApp(App):
                 a=demo_angle_hint(self.demo_modem)) + " · " + health
         ids.status_lbl.text = health
         scr.status_color = hex_to_rgba(skin_hex(color), sun)
-        ids.tower_lbl.text = self._tower_summary(snap)
+        tower = self._tower_summary(snap)
+        if "CA " in tower:
+            # El tramo de agregación de portadoras resalta en verde.
+            accent = '#{:02x}{:02x}{:02x}'.format(
+                *(int(v * 255) for v in self.c_accent[:3]))
+            head, _, tail = tower.partition("CA ")
+            ca, sep, rest = tail.partition(" · ")
+            tower = f"{head}[color={accent}][b]CA {ca}[/b][/color]{sep}{rest}"
+        ids.tower_lbl.text = tower
         cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
         for card, param in zip(cards, self._layout_params(), strict=True):
             self._metric_card(card, param)
