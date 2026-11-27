@@ -28,7 +28,7 @@ version.filename = %(source.dir)s/core/__init__.py
 #   * huawei-lte-api требует pycryptodomex (неймспейс Cryptodome), но у
 #     p4a нет его рецепта. Ставим pycryptodome (неймспейс Crypto), а
 #     android_main.py перенаправляет Cryptodome.* -> Crypto.* на старте.
-requirements = python3,kivy,huawei-lte-api,requests,urllib3,certifi,idna,charset-normalizer,xmltodict,pycryptodome
+requirements = python3,kivy,kivymd,pillow,huawei-lte-api,requests,urllib3,certifi,idna,charset-normalizer,xmltodict,pycryptodome
 
 # Ориентация и полноэкранность
 orientation = portrait

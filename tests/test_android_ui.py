@@ -92,6 +92,115 @@ def test_graph_param_reorders_cards(app):
     assert ids.primary_box.m_name == "SINR"
 
 
+def test_signal_screen_has_no_sound_button(app):
+    """La pantalla Señal ya no tiene botón de sonido: solo Picos y Menú."""
+    from kivy.uix.button import Button
+    from kivymd.uix.button import MDRaisedButton
+    ensure_online(app)
+    scr = app.sm.get_screen('monitor')
+    texts = [w.text for w in scr.walk() if isinstance(w, (Button, MDRaisedButton))]
+    assert not any('Звук' in text for text in texts)
+    assert any('Пики' in text for text in texts)
+    assert any('Меню' in text for text in texts)
+    assert not hasattr(scr, 'lbl_sound')
+
+
+def test_app_is_mdapp_with_peaks_md_button(app):
+    """Prueba KivyMD: la app es MDApp (tema oscuro, acento verde) y Picos es MDRaisedButton."""
+    from kivymd.app import MDApp
+    from kivymd.uix.button import MDRaisedButton
+    ensure_online(app)
+    assert isinstance(app, MDApp)
+    assert app.theme_cls.theme_style == 'Dark'
+    assert app.theme_cls.primary_palette == 'Green'
+    scr = app.sm.get_screen('monitor')
+    peaks = [w for w in scr.walk() if isinstance(w, MDRaisedButton)]
+    assert len(peaks) == 1
+    assert 'Пики' in peaks[0].text
+
+
+def test_signal_screen_has_no_spectrum(app):
+    """La pantalla Señal ya no tiene la interfaz de espectro."""
+    from kivy.uix.button import Button
+    ensure_online(app)
+    scr = app.sm.get_screen('monitor')
+    ids = scr.ids
+    assert not hasattr(scr, 'signal_tab')
+    assert 'spec_pane' not in ids and 'sig_pane' not in ids
+    assert 'spectrum_graph' not in ids and 'spec_info_lbl' not in ids
+    texts = [w.text for w in scr.walk() if isinstance(w, Button)]
+    assert not any('СПЕКТР' in text or 'ESPECTRO' in text for text in texts)
+    # El contenido de SEÑAL se ve directo, sin pestañas.
+    assert ids.metrics_grid.opacity == 1
+    assert 'MegaFon' in ids.cell_title_lbl.text
+    assert 'PCI' in ids.tower_lbl.text
+    assert '12345' in ids.cell_extra_lbl.text
+    assert 'MegaFon' in ids.op_val_lbl.text and '25002' in ids.op_val_lbl.text
+    assert ids.net_val_lbl.text not in ('', '-')
+    assert ids.nettype_val_lbl.text not in ('', '-')
+    assert 'ОБНОВЛЕНО' in ids.updated_lbl.text
+    assert ids.conn_count_lbl.text == '(1)'
+
+
+def test_signal_metric_bar_uses_quality_pct(app):
+    """Cada tarjeta muestra una barra con el porcentaje de calidad existente."""
+    from kivy.metrics import dp
+    from kivy.uix.widget import Widget
+
+    from core.signal_analysis import evaluate_signal
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
+    for card, param in zip(cards, app._layout_params(), strict=True):
+        _label, _color, pct = evaluate_signal(param.replace('nr_', ''),
+                                              app.state.current(param))
+        assert card.m_pct == pct
+        assert 0 <= card.m_pct <= 100
+        assert any(isinstance(child, Widget) and child.height == dp(5)
+                   for child in card.children)
+
+
+def test_signal_ca_segment_highlighted(app):
+    """El tramo CA de la línea de la torre resalta en verde con markup."""
+    ensure_online(app)
+    snap = core.Snapshot(registration='registered', connection=901,
+                         data_enabled=True, rsrp=-86, sinr=13, bands=(3, 1),
+                         freq_mhz=1815, cell_id=46111500, pci=287,
+                         enodeb=180123, sector=12, tac='12345',
+                         operator='MegaFon', plmn='25002', rat='lte',
+                         earfcn=1300, dl_bandwidth='20MHz')
+    app._render(snap)
+    text = app.sm.get_screen('monitor').ids.tower_lbl.text
+    assert 'CA B1' in text
+    assert '[color=' in text and '[/color]' in text
+    assert 'PCI' in text
+
+
+def test_signal_graph_fill_mesh_has_no_vcolor(app):
+    """El relleno del gráfico usa 4 números por vértice (sin vColor).
+
+    Con vColor el relleno salía invisible o como un triángulo gigante
+    fuera del gráfico con mucho historial.
+    """
+    from kivy.graphics import Mesh
+    ensure_online(app)
+    app.worker.pause()
+    try:
+        pump(lambda: False, 0.15)
+        app.refresh_graph()
+        pump(lambda: False, 0.15)
+        graph = app.sm.get_screen('monitor').ids.signal_graph
+        meshes = [c for c in graph.canvas.children if isinstance(c, Mesh)]
+        assert meshes
+        segs = graph.viewport.segments(False)
+        assert segs
+        for mesh in meshes:
+            assert len(mesh.vertices) == (len(segs) + 1) * 2 * 4
+            assert len(mesh.indices) == len(segs) * 6
+    finally:
+        app.worker.resume()
+
+
 def test_band_lock_restore_and_antenna(app):
     ensure_online(app)
     modem = app.demo_modem
@@ -148,13 +257,17 @@ def test_sun_theme(app):
     assert app.c_bg == [1, 1, 1, 1]
     app.apply_theme('dark')
     assert app.c_bg[0] < 0.2
+    # Piel NetMonster: fondo casi negro y acento verde de marca.
+    assert app.c_bg == [0.07, 0.08, 0.07, 1]
+    assert app.c_accent == [0.05, 0.65, 0.39, 1]
 
 
 def test_sun_theme_status_colors_readable(app):
     """В «Солнце» цвета статусов читаются на светлой карточке (≥ 4,5:1);
     в тёмной теме остаются исходными."""
     import android_main
-    for color in ('#00b894', '#2ecc71', '#fdcb6e', '#d63031', 'gray', 'orange', '#e68033'):
+    for color in ('#00b894', '#2ecc71', '#fdcb6e', '#d63031', 'gray', 'orange', '#e68033',
+                  '#0CA663', '#EAB308', '#EF4444'):
         r, g, b, _ = android_main.hex_to_rgba(color, sun=True)
         sun_hex = "#{:02x}{:02x}{:02x}".format(*(round(c * 255) for c in (r, g, b)))
         assert core.contrast_ratio(sun_hex, core.SUN_CARD_BG) >= 4.5, color
@@ -198,6 +311,18 @@ def test_beep_interval():
     assert android_main.beep_interval(-50) == pytest.approx(1.42)
     assert android_main.hex_to_rgba('#ffffff') == [1.0, 1.0, 1.0, 1.0]
     assert android_main.hex_to_rgba('garbage') == [0.5, 0.5, 0.5, 1.0]
+
+
+def test_skin_signal_colors():
+    """La piel NetMonster traduce los colores de señal del núcleo."""
+    import android_main
+    assert android_main.skin_hex('#00b894') == '#0CA663'
+    assert android_main.skin_hex('#2ecc71') == '#0CA663'
+    assert android_main.skin_hex('#fdcb6e') == '#EAB308'
+    assert android_main.skin_hex('#e68033') == '#EAB308'
+    assert android_main.skin_hex('#d63031') == '#EF4444'
+    assert android_main.skin_hex('green') == '#0CA663'
+    assert android_main.skin_hex('#123456') == '#123456'
 
 
 def test_double_back_disconnects(app):
@@ -450,18 +575,21 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
 @pytest.mark.parametrize('language', ['ru', 'en', 'es'])
 def test_metric_captions_fit_small_cards(app, size, language):
     from kivy.factory import Factory
+    from kivy.uix.label import Label
     core.set_language(language)
     card = Factory.MetricCard(size_hint=(None, None), size=size)
     card.m_name = 'RSRP'
     card.m_value = '-119.5'
     card.m_status = core.t('Нет данных')
     card.m_peak = core.t('Пик: {v} (Δ {d})').format(v='-109.5', d='-10.25')
+    # La barra de calidad es un Widget sin texto: solo importan las etiquetas.
+    labels = [c for c in card.children if isinstance(c, Label)]
     try:
         assert pump(lambda: all(label.text and label.texture_size[0] <= label.width + 1
                                and label.texture_size[1] <= label.height + 1
-                               for label in card.children))
+                               for label in labels))
         assert card.ids.peak_label.text.replace('\n', ' ') == card.m_peak
-        for label in card.children:
+        for label in labels:
             assert label.x >= card.x and label.right <= card.right
             assert label.y >= card.y and label.top <= card.top
     finally:

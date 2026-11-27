@@ -610,8 +610,6 @@ EN: dict[str, str] = {
         "Copy diagnostics",
     "Тестовый режим":
         "Test mode",
-    "♪ Звук":
-        "♪ Sound",
     "⚙ Сеть":
         "⚙ Network",
     ("IP по умолчанию: 192.168.8.1 (для B315/B525 — 192.168.1.1 или "
@@ -716,6 +714,22 @@ EN: dict[str, str] = {
          "otherwise the test measures a different link. Applies to Russia only."),
     "⟲ Пики":
         "⟲ Peaks",
+    "СИГНАЛ":
+        "SIGNAL",
+    "ОБНОВЛЕНО ТОЛЬКО ЧТО":
+        "UPDATED JUST NOW",
+    "АКТИВНЫЕ СОЕДИНЕНИЯ":
+        "ACTIVE CONNECTIONS",
+    "ИНСТРУМЕНТЫ РАДИО":
+        "RADIO TOOLS",
+    "ОТКРЫТЬ":
+        "OPEN",
+    "ДЕТАЛИ СЕТИ":
+        "NETWORK DETAILS",
+    "Тип сети":
+        "Network type",
+    "Фиксирует LTE-бэнды роутера для улучшения сигнала.":
+        "Locks the router LTE bands to improve signal.",
 }
 
 
@@ -935,7 +949,7 @@ ES: dict[str, str] = {
     'Тип антенны изменён: {mode}': 'Tipo de antena cambiado: {mode}',
     'Трафик за месяц (↓/↑)': 'Tráfico del mes (↓/↑)',
     'Управление роутером': 'Gestión del router',
-    'Фиксация частот (Band Lock)': 'Fijación de bandas (Band Lock)',
+    'Фиксация частот (Band Lock)': 'Bloqueo de bandas',
     'Частота DL': 'Frecuencia DL',
     'Ширина канала': 'Ancho de canal',
     'Язык:': 'Idioma:',
@@ -1011,7 +1025,6 @@ ES: dict[str, str] = {
     'Переподключить связь': 'Reconectar enlace',
     'Скопировать диагностику': 'Copiar diagnóstico',
     'Тестовый режим': 'Modo de prueba',
-    '♪ Звук': '♪ Sonido',
     '⚙ Сеть': '⚙ Red',
     'IP по умолчанию: 192.168.8.1 (для B315/B525 — 192.168.1.1 или 192.168.3.1) — кнопка «Найти» проверит их сама. Логин: admin, пароль — на наклейке роутера.\n\nЧастые ошибки и что делать:\n• 108006 — неверный логин или пароль.\n• 108007 — слишком много неудачных попыток: роутер временно заблокировал вход. Подождите несколько минут.\n• 108003 — уже выполнен вход с другого устройства. Закройте веб-интерфейс роутера.\n• 100002 — функция не поддерживается этой моделью или прошивкой. Часть возможностей будет недоступна — это нормально.\n• 100003 / 125002 / 125003 — истекла сессия. Программа войдёт заново сама.\n• Нет ответа — проверьте, что телефон подключён к Wi-Fi именно этого роутера и IP введён верно.\n\nТестовый режим показывает работу программы без роутера.': 'IP por defecto: 192.168.8.1 (B315/B525: 192.168.1.1 o 192.168.3.1) — el botón «Buscar» las prueba automáticamente. Usuario: admin, la contraseña está en la etiqueta del router.\n\nErrores frecuentes y qué hacer:\n• 108006 — usuario o contraseña incorrectos.\n• 108007 — demasiados intentos fallidos: el router bloqueó el acceso temporalmente. Espere unos minutos.\n• 108003 — ya hay una sesión iniciada desde otro dispositivo. Cierre la interfaz web del router.\n• 100002 — no compatible con este modelo o firmware. Algunas funciones no estarán disponibles — es normal.\n• 100003 / 125002 / 125003 — la sesión caducó. La aplicación vuelve a iniciar sesión sola.\n• Sin respuesta — compruebe que el teléfono esté conectado a la Wi-Fi de este router y que la IP sea correcta.\n\nEl modo de prueba muestra cómo funciona la aplicación sin router.',
     'Белые списки (РФ)': 'Listas blancas (RU)',
@@ -1080,6 +1093,14 @@ ES: dict[str, str] = {
     'Ранг MIMO LTE': 'Rango MIMO LTE',
     'Ранг MIMO NR': 'Rango MIMO NR',
     'Нет подтверждённых данных': 'Sin datos confirmados',
+    'СИГНАЛ': 'SEÑAL',
+    'ОБНОВЛЕНО ТОЛЬКО ЧТО': 'ACTUALIZADO AHORA MISMO',
+    'АКТИВНЫЕ СОЕДИНЕНИЯ': 'CONEXIONES ACTIVAS',
+    'ИНСТРУМЕНТЫ РАДИО': 'HERRAMIENTAS DE RADIO',
+    'ОТКРЫТЬ': 'ABRIR',
+    'ДЕТАЛИ СЕТИ': 'DETALLES DE RED',
+    'Тип сети': 'Tipo de red',
+    'Фиксирует LTE-бэнды роутера для улучшения сигнала.': 'Fija las bandas LTE del router para mejorar la señal.',
 }
 
 

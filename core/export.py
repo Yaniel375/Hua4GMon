@@ -3,9 +3,9 @@
 
 CSV:
   * UTF-8 с BOM — Excel сразу распознаёт кодировку;
-  * для русского интерфейса — разделитель «;» и десятичная запятая
-    (так Excel с русскими региональными настройками открывает файл по
-    колонкам), для английского — «,» и точка.
+  * para la interfaz en ruso o español — separador «;» y coma decimal
+    (así Excel con la configuración regional en ruso o español abre el
+    archivo por columnas), para inglés — «,» y punto.
 
 Диагностика: сырые ответы API для отчёта об ошибке. Идентификаторы
 (IMEI, IMSI, ICCID, номер, серийный номер) маскируются с сохранением
@@ -38,7 +38,7 @@ ADDRESS_KEY_PARTS: tuple[str, ...] = ('mac', 'dns', 'ipaddr', 'ipv4', 'ipv6addre
 
 def csv_dialect(lang: str) -> tuple[str, str]:
     """(разделитель, десятичный знак) под язык интерфейса."""
-    return (';', ',') if lang == 'ru' else (',', '.')
+    return (';', ',') if lang in ('ru', 'es') else (',', '.')
 
 
 def _cell(value: Any, decimal: str) -> str:
@@ -51,7 +51,7 @@ def _cell(value: Any, decimal: str) -> str:
 
 
 def write_session_csv(path: str, rows: Iterable[Mapping[str, Any]],
-                      lang: str = 'ru') -> int:
+                      lang: str = 'es') -> int:
     """Пишет лог сессии. Возвращает число записанных строк."""
     delimiter, decimal = csv_dialect(lang)
     count = 0
