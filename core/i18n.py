@@ -716,8 +716,6 @@ EN: dict[str, str] = {
         "⟲ Peaks",
     "СИГНАЛ":
         "SIGNAL",
-    "СПЕКТР":
-        "SPECTRUM",
     "ОБНОВЛЕНО ТОЛЬКО ЧТО":
         "UPDATED JUST NOW",
     "АКТИВНЫЕ СОЕДИНЕНИЯ":
@@ -730,10 +728,6 @@ EN: dict[str, str] = {
         "NETWORK DETAILS",
     "Тип сети":
         "Network type",
-    "СОТА ПОДКЛЮЧЕНА":
-        "CELL CONNECTED",
-    "СОТА НЕ ПОДКЛЮЧЕНА":
-        "NO CELL CONNECTED",
     "Фиксирует LTE-бэнды роутера для улучшения сигнала.":
         "Locks the router LTE bands to improve signal.",
 }
@@ -1100,15 +1094,12 @@ ES: dict[str, str] = {
     'Ранг MIMO NR': 'Rango MIMO NR',
     'Нет подтверждённых данных': 'Sin datos confirmados',
     'СИГНАЛ': 'SEÑAL',
-    'СПЕКТР': 'ESPECTRO',
     'ОБНОВЛЕНО ТОЛЬКО ЧТО': 'ACTUALIZADO AHORA MISMO',
     'АКТИВНЫЕ СОЕДИНЕНИЯ': 'CONEXIONES ACTIVAS',
     'ИНСТРУМЕНТЫ РАДИО': 'HERRAMIENTAS DE RADIO',
     'ОТКРЫТЬ': 'ABRIR',
     'ДЕТАЛИ СЕТИ': 'DETALLES DE RED',
     'Тип сети': 'Tipo de red',
-    'СОТА ПОДКЛЮЧЕНА': 'CELDA CONECTADA',
-    'СОТА НЕ ПОДКЛЮЧЕНА': 'SIN CELDA CONECTADA',
     'Фиксирует LTE-бэнды роутера для улучшения сигнала.': 'Fija las bandas LTE del router para mejorar la señal.',
 }
 

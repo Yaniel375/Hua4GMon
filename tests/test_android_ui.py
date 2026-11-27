@@ -104,17 +104,19 @@ def test_signal_screen_has_no_sound_button(app):
     assert not hasattr(scr, 'lbl_sound')
 
 
-def test_signal_tabs_and_new_sections(app):
-    """Pestañas ESPECTRO/SEÑAL y secciones nuevas con datos del router."""
+def test_signal_screen_has_no_spectrum(app):
+    """La pantalla Señal ya no tiene la interfaz de espectro."""
+    from kivy.uix.button import Button
     ensure_online(app)
     scr = app.sm.get_screen('monitor')
     ids = scr.ids
-    assert scr.signal_tab == 'spec'
-    assert ids.spec_pane.opacity == 1 and ids.sig_pane.opacity == 0
-    scr.signal_tab = 'sig'
-    assert ids.sig_pane.opacity == 1 and ids.spec_pane.opacity == 0
-    scr.signal_tab = 'spec'
-    assert 'EARFCN' in ids.spec_info_lbl.text
+    assert not hasattr(scr, 'signal_tab')
+    assert 'spec_pane' not in ids and 'sig_pane' not in ids
+    assert 'spectrum_graph' not in ids and 'spec_info_lbl' not in ids
+    texts = [w.text for w in scr.walk() if isinstance(w, Button)]
+    assert not any('СПЕКТР' in text or 'ESPECTRO' in text for text in texts)
+    # El contenido de SEÑAL se ve directo, sin pestañas.
+    assert ids.metrics_grid.opacity == 1
     assert 'MegaFon' in ids.cell_title_lbl.text
     assert 'PCI' in ids.tower_lbl.text
     assert '12345' in ids.cell_extra_lbl.text
