@@ -1911,13 +1911,13 @@ def run_self_test(report: str) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=f"{APP_NAME} — портативный монитор LTE/5G Huawei.")
-    p.add_argument('--ip', default='192.168.8.1', help='IP роутера (по умолчанию 192.168.8.1)')
-    p.add_argument('--password', default='', help='Пароль (если указан — автоподключение)')
-    p.add_argument('--demo', action='store_true', help='Тестовый режим без роутера')
-    p.add_argument('--verbose', '-v', action='store_true', help='Подробный лог в stderr')
-    p.add_argument('--self-test', nargs='?', const='', default=None, metavar='ФАЙЛ',
-                   help='Проверить программу без роутера и выйти (отчёт — в ФАЙЛ)')
+    p = argparse.ArgumentParser(description=f"{APP_NAME} — monitor portátil LTE/5G para Huawei.")
+    p.add_argument('--ip', default='192.168.8.1', help='IP del router (por defecto 192.168.8.1)')
+    p.add_argument('--password', default='', help='Contraseña (si se indica, conecta automáticamente)')
+    p.add_argument('--demo', action='store_true', help='Modo de prueba sin router')
+    p.add_argument('--verbose', '-v', action='store_true', help='Registro detallado en stderr')
+    p.add_argument('--self-test', nargs='?', const='', default=None, metavar='ARCHIVO',
+                   help='Comprobar la aplicación sin router y salir (informe en ARCHIVO)')
     p.add_argument('--version', action='version', version=f'{APP_NAME} {__version__}')
     return p.parse_args(argv)
 
