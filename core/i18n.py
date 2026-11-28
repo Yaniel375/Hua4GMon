@@ -678,6 +678,8 @@ EN: dict[str, str] = {
         "Check now",
     "Сеть":
         "Network",
+    "Сигнал":
+        "Signal",
     "Состояние":
         "Status",
     ("Список взят из модема; замеченные в эфире бэнды — первыми. Меняются "
@@ -692,8 +694,6 @@ EN: dict[str, str] = {
         "← Back",
     "↩ Как было":
         "↩ As before",
-    "☰ Меню":
-        "☰ Menu",
     "В эфире · обновление каждую секунду":
         "Live · updating every second",
     "Тестовый режим · демонстрационные данные":
@@ -1064,12 +1064,12 @@ ES: dict[str, str] = {
     'Портативный монитор LTE/5G Huawei': 'Monitor portátil LTE/5G para Huawei',
     'Проверить сейчас': 'Comprobar ahora',
     'Сеть': 'Red',
+    'Сигнал': 'Señal',
     'Состояние': 'Estado',
     'Список взят из модема; замеченные в эфире бэнды — первыми. Меняются только LTE-бэнды; «Как было» восстановит настройки, прочитанные при подключении.': 'La lista procede del módem; las bandas detectadas en el aire aparecen primero. Solo se cambian las bandas LTE; «Como estaba» restaura la configuración leída al conectar.',
     'Тестовый режим (без модема)': 'Modo de prueba (sin módem)',
     '← Назад': '← Atrás',
     '↩ Как было': '↩ Como estaba',
-    '☰ Меню': '☰ Menú',
     'В эфире · обновление каждую секунду': 'En vivo · actualizando cada segundo',
     'Тестовый режим · демонстрационные данные': 'Modo de prueba · datos simulados',
     'Сканер наблюдений': 'Escáner de observaciones',

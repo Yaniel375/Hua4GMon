@@ -78,6 +78,8 @@ from kivy.properties import (
     NumericProperty,
     StringProperty,
 )
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
@@ -231,8 +233,8 @@ FONT: dict[str, float] = {
 }
 
 
-# Radios del sistema (dp): botones 10, tarjetas 12, chips 6.
-RADIUS: dict[str, int] = {'card': 12, 'button': 10, 'chip': 6}
+# Radios del sistema (dp): botones 10, tarjetas 12, chips 6, píldora 16.
+RADIUS: dict[str, int] = {'card': 12, 'button': 10, 'chip': 6, 'pill': 16}
 
 
 def unit_of(param: str) -> str:
@@ -480,7 +482,7 @@ class IconWidget(Widget):
     Coordenadas relativas al centro y al lado menor del widget, así el
     mismo icono sirve en la tarjeta de Conexión, en el Menú y en los
     botones. Iconos: info, radar, gear, sun, power, router, lock,
-    eye, eye_off, expand, check.
+    eye, eye_off, expand, check, signal, network, menu.
     """
     icon = StringProperty('')
     icon_color = ListProperty([1, 1, 1, 1])
@@ -577,6 +579,23 @@ class IconWidget(Widget):
                 self._line([cx - 0.6 * r, cy + 0.02 * r,
                             cx - 0.14 * r, cy - 0.44 * r,
                             cx + 0.62 * r, cy + 0.48 * r])
+            elif self.icon == 'signal':
+                # Barras de señal ascendentes (barra inferior: Señal).
+                for dx, h in ((-0.6, 0.35), (-0.2, 0.6),
+                              (0.2, 0.85), (0.6, 1.1)):
+                    self._line([cx + dx * r, cy - 0.55 * r,
+                                cx + dx * r, cy - 0.55 * r + h * r])
+            elif self.icon == 'network':
+                # Deslizadores (barra inferior: Red / bandas).
+                for dy, dx in ((0.45, -0.3), (0, 0.35), (-0.45, -0.05)):
+                    self._line([cx - 0.8 * r, cy + dy * r,
+                                cx + 0.8 * r, cy + dy * r])
+                    self._dot(cx + dx * r, cy + dy * r, 0.14 * r)
+            elif self.icon == 'menu':
+                # Hamburguesa (barra inferior: Menú).
+                for dy in (0.5, 0, -0.5):
+                    self._line([cx - 0.75 * r, cy + dy * r,
+                                cx + 0.75 * r, cy + dy * r])
 
 
 class LiveDot(Widget):
@@ -616,6 +635,33 @@ class BandCheckBox(CheckBox):
 
     def on_touch_up(self, touch: Any) -> bool:
         return False
+
+
+class NavItem(ButtonBehavior, BoxLayout):
+    """Botón de la barra inferior (Etapa 5): icono de líneas + etiqueta.
+
+    ``target`` es la pantalla a la que navega ('monitor', 'info',
+    'tools') o 'menu' para abrir el Menú; ``active`` marca la sección
+    seleccionada. La apariencia vive en la regla KV <NavItem>.
+    """
+
+    icon = StringProperty('')
+    label = StringProperty('')
+    target = StringProperty('')
+    active = BooleanProperty(False)
+
+
+class BottomNavBar(BoxLayout):
+    """Barra de navegación inferior (Etapa 5): los 4 accesos existentes.
+
+    ``section`` es la pantalla que la contiene ('monitor', 'info' o
+    'tools'): cada instancia resalta su propio acceso y el de Menú
+    nunca queda seleccionado (abre la hoja, no es una pantalla). La
+    pantalla de Conexión no lleva barra. La apariencia vive en la
+    regla KV <BottomNavBar>.
+    """
+
+    section = StringProperty('')
 
 
 class SignalGraph(Widget):
@@ -1275,6 +1321,90 @@ KV = """
             pos: self.pos
             size: self.size
             radius: [dp(8)]
+
+# Etapa 5: un acceso de la barra inferior: icono de líneas arriba y
+# etiqueta debajo; activo con pastilla verde al 16 % e icono y texto
+# en verde, inactivo en gris. El toque lo gestiona ButtonBehavior.
+<NavItem>:
+    orientation: 'vertical'
+    spacing: dp(2)
+    padding: dp(2), dp(7)
+    canvas.before:
+        Color:
+            rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
+    IconWidget:
+        icon: root.icon
+        icon_color: app.c_accent if root.active else app.c_sub
+        size_hint: None, None
+        size: dp(24), dp(24)
+        pos_hint: {'center_x': 0.5}
+        line_width: dp(1.8)
+    Label:
+        text: root.label
+        font_size: sp(FONT['small'])
+        bold: root.active
+        color: app.c_accent if root.active else app.c_sub
+        size_hint_y: None
+        height: dp(16)
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+        shorten: True
+        shorten_from: 'right'
+
+# Etapa 5: barra de navegación inferior: píldora flotante con los 4
+# accesos existentes (Señal, Información, Red, Menú). Cada pantalla
+# lleva su propia instancia con section fijo, así el acceso activo
+# es siempre el de la pantalla que se está viendo; Menú nunca queda
+# seleccionado porque abre la hoja, no es una pantalla. La Conexión
+# no lleva barra. El margen inferior de 8 dp es el área segura.
+<BottomNavBar>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(64)
+    padding: dp(4)
+    spacing: dp(4)
+    canvas.before:
+        Color:
+            rgba: app.c_card
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['pill'])]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['pill'])
+            width: dp(1)
+    NavItem:
+        icon: 'signal'
+        label: app.lbl_nav_signal
+        target: 'monitor'
+        active: root.section == 'monitor'
+        on_release: app.go(self.target)
+    NavItem:
+        icon: 'info'
+        label: app.lbl_nav_info
+        target: 'info'
+        active: root.section == 'info'
+        on_release: app.go(self.target)
+    NavItem:
+        icon: 'network'
+        label: app.lbl_nav_tools
+        target: 'tools'
+        active: root.section == 'tools'
+        on_release: app.go(self.target)
+    NavItem:
+        icon: 'menu'
+        label: app.lbl_nav_menu
+        target: 'menu'
+        active: False
+        on_release: app.open_menu()
 
 # Etapa 4: anillo de salud: arco de fondo gris + arco de color según
 # el porcentaje (0-100 %), con el % en el centro.
@@ -2066,16 +2196,16 @@ ScreenManager:
                     height: self.texture_size[1] if self.text else 0
                     text_size: self.width, None
                     halign: 'left'
-        BoxLayout:
+        PillButton:
+            text: root.lbl_peaks
             size_hint_y: None
             height: dp(56)
-            spacing: dp(9)
-            PillButton:
-                text: root.lbl_peaks
-                on_release: app.reset_peaks()
-            PillButton:
-                text: root.lbl_menu
-                on_release: app.open_menu()
+            on_release: app.reset_peaks()
+        # Etapa 5: barra inferior con los 4 accesos. La píldora Menú
+        # ya no está aquí: su acceso vive en la barra (sin duplicar).
+        BottomNavBar:
+            id: nav_bar
+            section: 'monitor'
 
 <InfoScreen>:
     name: 'info'
@@ -2132,6 +2262,16 @@ ScreenManager:
                         orientation: 'vertical'
                         size_hint_y: None
                         height: self.minimum_height
+        # Etapa 5: barra inferior. El envoltorio deja el mismo margen
+        # de 8 dp que el padding de la raíz de Señal, así la píldora
+        # flota igual en las tres pantallas.
+        BoxLayout:
+            size_hint_y: None
+            height: dp(78)
+            padding: dp(8), dp(6), dp(8), dp(8)
+            BottomNavBar:
+                id: nav_bar
+                section: 'info'
 
 <ToolsScreen>:
     name: 'tools'
@@ -2245,6 +2385,14 @@ ScreenManager:
                     AutoLabel:
                         text: root.wl_detail
                         font_size: sp(FONT['hint'])
+        # Etapa 5: barra inferior (mismo envoltorio que Información).
+        BoxLayout:
+            size_hint_y: None
+            height: dp(78)
+            padding: dp(8), dp(6), dp(8), dp(8)
+            BottomNavBar:
+                id: nav_bar
+                section: 'tools'
 """
 
 
@@ -2344,7 +2492,6 @@ class ConnectionScreen(Screen):
 class MonitorScreen(Screen):
     lbl_fullscreen = StringProperty("")
     lbl_peaks = StringProperty("")
-    lbl_menu = StringProperty("")
     lbl_info_lte = StringProperty("")
     lbl_health = StringProperty("")
     lbl_health_note = StringProperty("")
@@ -2368,7 +2515,6 @@ class MonitorScreen(Screen):
     def refresh_texts(self) -> None:
         self.lbl_fullscreen = t("Развернуть")
         self.lbl_peaks = t("⟲ Пики")
-        self.lbl_menu = t("☰ Меню")
         self.lbl_info_lte = t("ИНФОРМАЦИЯ LTE")
         self.lbl_health = t("ЗДОРОВЬЕ СИГНАЛА")
         self.lbl_health_note = t(
@@ -2494,6 +2640,10 @@ class Hua4GMonApp(App):
     c_accent_down = ListProperty(THEMES['dark']['c_accent_down'])
     sound_on = BooleanProperty(False)
     lbl_back = StringProperty("")
+    lbl_nav_signal = StringProperty("")
+    lbl_nav_info = StringProperty("")
+    lbl_nav_tools = StringProperty("")
+    lbl_nav_menu = StringProperty("")
 
     # ---------- запуск и жизненный цикл ----------
 
@@ -2526,6 +2676,7 @@ class Hua4GMonApp(App):
         self._beep_ev: Any = None
         self.beeper = ToneBeeper()
         self.lbl_back = t("← Назад")
+        self._refresh_nav_labels()
         self._ca_signature: Any = None
         self.sm: ScreenManager = Builder.load_string(KV)
         Clock.schedule_interval(self._tick, 0.5)
@@ -2568,10 +2719,18 @@ class Hua4GMonApp(App):
         else:
             self.refresh_graph()
 
+    def _refresh_nav_labels(self) -> None:
+        """Etiquetas de la barra inferior (Etapa 5), según el idioma."""
+        self.lbl_nav_signal = t("Сигнал")
+        self.lbl_nav_info = t("Информация")
+        self.lbl_nav_tools = t("Сеть")
+        self.lbl_nav_menu = t("Меню")
+
     def refresh_all_texts(self) -> None:
         self._bands_shown = []
         self.build_band_checkboxes()
         self.lbl_back = t("← Назад")
+        self._refresh_nav_labels()
         for name in ('connection', 'monitor', 'info', 'tools'):
             self.sm.get_screen(name).refresh_texts()
         self._render_link_state()

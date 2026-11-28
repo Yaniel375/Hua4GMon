@@ -124,16 +124,89 @@ def test_graph_param_changes_graph(app):
     assert ids.signal_graph._param == 'sinr'
 
 
+def _nav_items(app, screen):
+    """Accesos de la barra inferior de una pantalla, por destino."""
+    bar = app.sm.get_screen(screen).ids.nav_bar
+    return {item.target: item for item in bar.children}
+
+
 def test_signal_screen_has_no_sound_button(app):
-    """La pantalla Señal ya no tiene botón de sonido: solo Picos y Menú."""
+    """La pantalla Señal ya no tiene botón de sonido: solo Picos y la barra.
+
+    Etapa 5: la píldora Menú se fue a la barra inferior; Picos queda
+    como única píldora y el acceso Menú vive en la barra.
+    """
     from kivy.uix.button import Button
     ensure_online(app)
     scr = app.sm.get_screen('monitor')
     texts = [w.text for w in scr.walk() if isinstance(w, Button)]
     assert not any('Звук' in text for text in texts)
     assert any('Пики' in text for text in texts)
-    assert any('Меню' in text for text in texts)
     assert not hasattr(scr, 'lbl_sound')
+    assert _nav_items(app, 'monitor')['menu'].label == 'Меню'
+
+
+def test_bottom_nav_present_on_main_screens(app):
+    """Etapa 5: barra inferior en Señal, Información y Red; no en Conexión."""
+    from kivy.metrics import dp
+    ensure_online(app)
+    for name, section in (('monitor', 'monitor'), ('info', 'info'),
+                          ('tools', 'tools')):
+        bar = app.sm.get_screen(name).ids.get('nav_bar')
+        assert bar is not None, name
+        assert bar.section == section
+        assert bar.height == dp(64)
+        # Margen inferior de 8 dp (área segura) igual en las tres.
+        assert bar.y == pytest.approx(dp(8))
+    assert 'nav_bar' not in app.sm.get_screen('connection').ids
+
+
+def test_bottom_nav_items_navigate(app):
+    """Etapa 5: cada acceso navega a su pantalla; Menú abre la hoja."""
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+    ensure_online(app)
+    app.go('monitor')
+    items = _nav_items(app, 'monitor')
+    assert sorted(items) == ['info', 'menu', 'monitor', 'tools']
+    assert [items[t].label for t in ('monitor', 'info', 'tools', 'menu')] == [
+        'Сигнал', 'Информация', 'Сеть', 'Меню']
+    items['info'].dispatch('on_release')
+    assert app.sm.current == 'info'
+    _nav_items(app, 'info')['tools'].dispatch('on_release')
+    assert app.sm.current == 'tools'
+    _nav_items(app, 'tools')['monitor'].dispatch('on_release')
+    assert app.sm.current == 'monitor'
+    _nav_items(app, 'monitor')['menu'].dispatch('on_release')
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    assert popup is not None
+    popup.dismiss()
+
+
+def test_bottom_nav_selected_indicator(app):
+    """Etapa 5: el acceso activo es el de la pantalla visible; Menú nunca."""
+    ensure_online(app)
+    for screen, active in (('monitor', 'monitor'), ('info', 'info'),
+                           ('tools', 'tools')):
+        app.go(screen)
+        items = _nav_items(app, screen)
+        for target, item in items.items():
+            assert item.active == (target == active), (screen, target)
+        assert not items['menu'].active
+
+
+def test_bottom_nav_does_not_cover_content(app):
+    """Etapa 5: la barra no tapa contenido ni botones en ninguna pantalla."""
+    from kivy.uix.button import Button
+    ensure_online(app)
+    mon = app.sm.get_screen('monitor')
+    bar = mon.ids.nav_bar
+    peaks = next(w for w in mon.walk()
+                 if isinstance(w, Button) and 'Пики' in w.text)
+    assert peaks.y >= bar.top
+    for name in ('info', 'tools'):
+        scr = app.sm.get_screen(name)
+        assert scr.ids.content_scroll.y >= scr.ids.nav_bar.top
 
 
 def test_signal_screen_has_no_spectrum(app):
@@ -462,7 +535,8 @@ def test_english_texts(app):
     try:
         app.refresh_all_texts()
         scr = app.sm.get_screen('monitor')
-        assert scr.lbl_menu == "☰ Menu"
+        assert app.lbl_nav_signal == "Signal"
+        assert app.lbl_nav_menu == "Menu"
         assert scr.lbl_info_lte == "LTE INFORMATION"
         assert scr.lbl_health == "SIGNAL HEALTH"
         assert scr.ids.op_sub_lbl.text == "OPERATOR · RU · DEMO"  # D6
