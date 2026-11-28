@@ -1170,13 +1170,13 @@ KV = """
         base_size: sp(FONT['label'])
         bold: True
         color: app.c_sub
-        size_hint_y: 0.15
+        size_hint_y: 0.17
     CardLabel:
         caption: root.m_value
         base_size: root.value_size
         bold: True
         color: app.c_text
-        size_hint_y: 0.45
+        size_hint_y: 0.43
     Widget:
         size_hint_y: None
         height: dp(5)
@@ -1191,18 +1191,21 @@ KV = """
             Rectangle:
                 pos: self.pos
                 size: self.width * root.m_pct / 100, self.height
+    # Etapa 6: la fila de estado tenía 0,15 (15,4 dp) y su textura
+    # mide 16 px, así que CardLabel la achicaba a 10,9 sp en todos
+    # los tamaños; con 0,19 (19,6 dp) cabe a 13 sp sin encoger.
     CardLabel:
         caption: root.m_status
         base_size: sp(FONT['hint'])
         color: root.m_color
-        size_hint_y: 0.15
+        size_hint_y: 0.19
     CardLabel:
         id: peak_label
         caption: root.m_peak
         base_size: sp(FONT['hint'])
         color: app.c_sub
         halign: 'center'
-        size_hint_y: 0.25
+        size_hint_y: 0.21
 
 # Original mejorado: fila etiqueta→valor de INFORMACIÓN LTE
 # (etiqueta pequeña gris a la izquierda, valor blanco a la derecha,
@@ -1767,19 +1770,28 @@ ScreenManager:
             height: self.minimum_height
             padding: dp(24)
             spacing: dp(12)
-            Label:
-                text: 'Hua4GMon'
-                font_size: sp(FONT['display'])
+            CardLabel:
+                caption: 'Hua4GMon'
+                base_size: sp(FONT['display'])
                 bold: True
                 color: app.c_text
                 size_hint_y: None
                 height: dp(64)
+                # Etapa 6: CardLabel (autoajuste) en vez de Label fijo:
+                # a 216 dp el título no cabía (233 px en 168 dp) y se
+                # cortaba; ahora achica la fuente solo si hace falta.
             Label:
                 text: root.subtitle
                 font_size: sp(FONT['body'])
                 color: app.c_sub
                 size_hint_y: None
-                height: dp(26)
+                # Etapa 6: con la fuente del sistema grande el subtítulo
+                # no cabe en una línea (347 px en 312 dp) y se cortaba
+                # por los lados: envuelve y la altura sigue a la textura.
+                height: max(dp(26), self.texture_size[1] + dp(4))
+                text_size: self.width, None
+                halign: 'center'
+                valign: 'middle'
             GreenRule:
             SectionCard:
                 SectionHead:
@@ -1860,6 +1872,12 @@ ScreenManager:
                 text: root.lbl_demo
                 size_hint_y: None
                 height: dp(48)
+                # Etapa 6: en ventanas muy estrechas el texto no cabe en
+                # una línea (237 px en 168 dp a 216 dp): envuelve a dos
+                # líneas en vez de cortarse.
+                text_size: self.width, None
+                halign: 'center'
+                valign: 'middle'
                 on_release: app.start_demo()
             FlatButton:
                 text: root.lbl_help
@@ -3164,9 +3182,9 @@ class Hua4GMonApp(App):
         """Control segmentado del gráfico: un botón por parámetro.
 
         Con 4 parámetros (LTE) va en una fila junto a «Ampliar», como
-        en el preview; con NR (7) ocupa toda la fila y «Ampliar» baja
-        a su propia fila. Se reconstruye solo si cambia la lista, el
-        parámetro activo o el idioma.
+        en el preview; con NR (7) ocupa dos filas (LTE arriba, NR
+        abajo) y «Ampliar» baja a su propia fila. Se reconstruye solo
+        si cambia la lista, el parámetro activo o el idioma.
         """
         from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
@@ -3182,28 +3200,38 @@ class Hua4GMonApp(App):
         box.clear_widgets()
         values = list(scr.graph_values)
         wide = len(values) > 4
-        seg = BoxLayout(orientation='horizontal', size_hint_y=None,
-                        height=dp(42), spacing=dp(3))
-        for param in values:
-            # Las propiedades de la regla KV solo existen tras construir
-            # el widget: se asignan después, no como kwargs del constructor.
+        # Las propiedades de la regla KV solo existen tras construir
+        # el widget: se asignan después, no como kwargs del constructor.
+        def make_seg(param: str, size: float) -> object:
             btn = Factory.SegButton(
                 text=param.upper(), group='graph_param',
-                font_size=sp(FONT['label'] if wide else FONT['hint']))
+                font_size=sp(size))
             btn.param = param
             btn.bind(on_release=lambda _b, p=param: self.set_graph_param(p))
             if param == self.state.trend_param:
                 btn.state = 'down'
-            seg.add_widget(btn)
+            return btn
         expand = Factory.FlatButton(text=scr.lbl_fullscreen,
                                     font_size=sp(FONT['body']))
         expand.bind(on_release=lambda *a: self.open_fullscreen_graph())
         if wide:
-            box.add_widget(seg)
+            # Etapa 6: los 7 botones en una fila cortaban las etiquetas
+            # NR (57-62 px de textura en botones de 46 dp a 360 dp, y
+            # también a 412 dp): filas de 4, que caben hasta en 320 dp.
+            for start in range(0, len(values), 4):
+                seg = BoxLayout(orientation='horizontal', size_hint_y=None,
+                                height=dp(42), spacing=dp(3))
+                for param in values[start:start + 4]:
+                    seg.add_widget(make_seg(param, FONT['label']))
+                box.add_widget(seg)
             expand.size_hint_y = None
             expand.height = dp(42)
             box.add_widget(expand)
         else:
+            seg = BoxLayout(orientation='horizontal', size_hint_y=None,
+                            height=dp(42), spacing=dp(3))
+            for param in values:
+                seg.add_widget(make_seg(param, FONT['hint']))
             row = BoxLayout(orientation='horizontal', size_hint_y=None,
                             height=dp(42), spacing=dp(6))
             row.add_widget(seg)
@@ -3275,19 +3303,43 @@ class Hua4GMonApp(App):
         return popup
 
     def open_survey(self) -> None:
+        from kivy.core.text import Label as CoreLabel
+        from kivy.core.window import Window
         from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.textinput import TextInput
         box = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(6))
+        # Etapa 6: en ventanas estrechas o con la fuente grande, los
+        # botones «Buscar operadores» / «Copiar resultado» no caben de
+        # dos en dos (140 px de texto en botones de 134 dp a 320 dp):
+        # esa pareja se apila en vertical. Se mide con la fuente real
+        # del botón (la regla KV fija 16 sp, no los 15 sp del kwarg).
+        content_w = Window.width * 0.97 - dp(24) - dp(12)
+        pair_w = (content_w - dp(6)) / 2
         for items in (((t('Старт'), self._start_survey), (t('Стоп'), self._stop_survey)),
                       ((t('Поиск операторов'), self._search_survey),
                        (t('Копировать результат'), self._copy_survey))):
-            bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+            buttons = []
             for title, action in items:
                 button = Factory.FlatButton(text=title, font_size=sp(FONT['body']))
                 button.bind(on_release=lambda _b, fn=action: fn())
-                bar.add_widget(button)
-            box.add_widget(bar)
+                buttons.append(button)
+            widest = 0.0
+            for button in buttons:
+                probe = CoreLabel(text=button.text, font_size=button.font_size,
+                                  font_name=button.font_name, bold=button.bold)
+                probe.refresh()
+                widest = max(widest, probe.texture.width)
+            if widest > pair_w - dp(4):
+                for button in buttons:
+                    button.size_hint_y = None
+                    button.height = dp(48)
+                    box.add_widget(button)
+            else:
+                bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+                for button in buttons:
+                    bar.add_widget(button)
+                box.add_widget(bar)
         # Campo de informe con la piel del tema (antes fondo blanco con
         # texto oscuro, estilo por defecto de Kivy sin tematizar).
         self._survey_text = TextInput(
@@ -3380,8 +3432,13 @@ class Hua4GMonApp(App):
         title.bind(size=lambda i, v: setattr(i, 'text_size', v))
         box.add_widget(title)
         box.add_widget(Factory.GreenRule())
+        # Etapa 6: en ventanas bajas (horizontal, 360 dp de alto) la
+        # hoja de 374 dp no cabe y el asa quedaba cortada arriba: la
+        # hoja se acorta y los ítems se compactan para que quepan los
+        # 5. En vertical no cambia nada (374 dp, ítems de 58 dp).
+        sheet_h = min(dp(374), Window.height - dp(16))
         popup = self._style_popup(Popup(title='', separator_height=0, content=box,
-                                        size_hint=(1, None), height=dp(374)))
+                                        size_hint=(1, None), height=sheet_h))
         # (icono, nombre, descripción, acción, peligro): los nombres ya no
         # llevan glifos de texto (D2/D5); el tema nombra la acción.
         items = [
@@ -3400,8 +3457,15 @@ class Hua4GMonApp(App):
             ('power', t("Отключиться"), t("Закрыть сессию с роутером"),
              self.confirm_disconnect, True),
         ]
+        item_h = dp(58)
+        if sheet_h < dp(374):
+            # Fijos de la hoja: padding 20 + asa 12 + título 36 +
+            # regla 2 + separaciones 14 = 84 dp, más 4 huecos de 2 dp
+            # entre los 5 ítems: el resto se reparte entre los ítems.
+            item_h = max(dp(40), (sheet_h - dp(92)) / 5)
         for icon, name, desc, action, danger in items:
             item = Factory.MenuItem()
+            item.height = item_h
             item.icon = icon
             item.name = name
             item.desc = desc
