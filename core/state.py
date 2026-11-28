@@ -160,12 +160,17 @@ class CellStats:
 
 
 def cell_label(snap: Snapshot) -> str:
-    """'B3 · PCI 287' — короткая подпись соты."""
+    """'B3 · PCI 287' — короткая подпись соты.
+
+    El PLMN va separado por «·»: pegado al ECI con un espacio, la línea
+    de eventos lo partía entre los dos números («46336535 / 25002»).
+    """
     band = f"B{snap.bands[0]}" if snap.bands else "?"
     pci = snap.pci if snap.pci is not None else "?"
     key = snap.cell
     identity = f" · {'NCI' if key.nr else 'ECI'} {key.identity}" if key.identity is not None else ""
-    return f"{snap.nr_band if key.nr else band} · PCI {key.pci if key.nr else pci}{identity} {snap.plmn}".strip()
+    label = f"{snap.nr_band if key.nr else band} · PCI {key.pci if key.nr else pci}{identity}"
+    return f"{label} · {snap.plmn}" if snap.plmn else label
 
 
 class SignalState:

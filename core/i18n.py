@@ -42,8 +42,6 @@ EN: dict[str, str] = {
     '{n} потоков': '{n} layers',
     'Команда отправлена, но режим антенны не подтверждён.': 'Command sent, but antenna mode was not confirmed.',
     'Мобильные данные выключены. Включите их в веб-интерфейсе роутера перед переподключением.': 'Mobile data is disabled. Enable it in the router web interface before reconnecting.',
-    "От {a:.0f} до {b:.0f} с назад":
-        "{a:.0f} to {b:.0f} s ago",
     "«Переподключить связь» выключает и включает мобильные данные. Интернет временно пропадёт. После перезагрузки программа переподключится сама.":
         "“Reconnect” turns mobile data off and back on. Internet access will be interrupted. After a reboot, the app reconnects automatically.",
     "Время +":
@@ -554,6 +552,18 @@ EN: dict[str, str] = {
         "not tested",
     "пик {v}":
         "peak {v}",
+    "▲ макс {v}":
+        "▲ max {v}",
+    "−{n} мин":
+        "−{n} min",
+    "−{n} с":
+        "−{n} s",
+    "сейчас":
+        "now",
+    "DEMO · демонстрационные данные":
+        "DEMO · simulated data",
+    "Если в этом бэнде нет сигнала, связь пропадёт.":
+        "If there is no signal on that band, you will lose the connection.",
     "↩ Вернуть как было":
         "↩ Restore as before",
     "⏹ Отключиться":
@@ -700,16 +710,12 @@ EN: dict[str, str] = {
         "Demo mode · simulated data",
     "Сканер наблюдений":
         "Network survey",
-    "Станция, SIM, устройство и состояние":
-        "Station, SIM, device and status",
     "Beta · наблюдайте соты, поворачивая антенну":
         "Beta · watch cells while turning the antenna",
-    "Бэнды, антенна и управление роутером":
-        "Bands, antenna and router management",
     "Светлая тема для чтения под прямым солнцем":
         "Light theme for reading in direct sunlight",
-    "Тёмная тема: чёрный фон и зелёный акцент":
-        "Dark theme: black background and green accent",
+    "Тёмная тема: тёмно-синий фон и бирюзовый акцент":
+        "Dark theme: dark-blue background and teal accent",
     "Закрыть сессию с роутером":
         "Close the session with the router",
     "Включить солнце":
@@ -722,8 +728,6 @@ EN: dict[str, str] = {
         "Currently on the modem:",
     "не прочитано":
         "not read",
-    "AUTO (все бэнды)":
-        "AUTO (all bands)",
     "в эфире":
         "on air",
     "Развернуть":
@@ -806,7 +810,6 @@ ES: dict[str, str] = {
     '{n} потоков': '{n} capas',
     'Команда отправлена, но режим антенны не подтверждён.': 'Comando enviado, pero el modo de antena no se confirmó.',
     'Мобильные данные выключены. Включите их в веб-интерфейсе роутера перед переподключением.': 'Los datos móviles están desactivados. Actívelos en la interfaz web del router antes de reconectar.',
-    'От {a:.0f} до {b:.0f} с назад': 'Hace de {a:.0f} a {b:.0f} s',
     '«Переподключить связь» выключает и включает мобильные данные. Интернет временно пропадёт. После перезагрузки программа переподключится сама.': '«Reconectar enlace» apaga y vuelve a encender los datos móviles. Internet se interrumpirá temporalmente. Tras un reinicio, la aplicación se reconecta sola.',
     'Время +': 'Tiempo +',
     'Время −': 'Tiempo −',
@@ -1022,6 +1025,12 @@ ES: dict[str, str] = {
     'Экспорт': 'Exportar',
     'не проверено': 'sin comprobar',
     'пик {v}': 'pico {v}',
+    '▲ макс {v}': '▲ máx {v}',
+    '−{n} мин': '−{n} min',
+    '−{n} с': '−{n} s',
+    'сейчас': 'ahora',
+    'DEMO · демонстрационные данные': 'DEMO · datos simulados',
+    'Если в этом бэнде нет сигнала, связь пропадёт.': 'Si no hay señal en esa banda perderás la conexión.',
     '↩ Вернуть как было': '↩ Dejar como estaba',
     '⏹ Отключиться': '⏹ Desconectar',
     '⚙️ Подключение': '⚙️ Conexión',
@@ -1073,18 +1082,15 @@ ES: dict[str, str] = {
     'В эфире · обновление каждую секунду': 'En vivo · actualizando cada segundo',
     'Тестовый режим · демонстрационные данные': 'Modo de prueba · datos simulados',
     'Сканер наблюдений': 'Escáner de observaciones',
-    'Станция, SIM, устройство и состояние': 'Estación, SIM, dispositivo y estado',
     'Beta · наблюдайте соты, поворачивая антенну': 'Beta · celdas al girar la antena',
-    'Бэнды, антенна и управление роутером': 'Bandas, antena y gestión del router',
     'Светлая тема для чтения под прямым солнцем': 'Tema claro para leer bajo el sol',
-    'Тёмная тема: чёрный фон и зелёный акцент': 'Tema oscuro: fondo negro y acento verde',
+    'Тёмная тема: тёмно-синий фон и бирюзовый акцент': 'Tema oscuro: fondo azul noche y acento teal',
     'Закрыть сессию с роутером': 'Cerrar la sesión con el router',
     'Включить солнце': 'Cambiar a modo sol',
     'Вернуться к тёмной теме': 'Volver a modo oscuro',
     '70 % — худший параметр, 30 % — лучший, как считает приложение.': '70 % del peor parámetro + 30 % del mejor, como calcula la app.',
     'Сейчас на модеме:': 'Ahora en el módem:',
     'не прочитано': 'no leído',
-    'AUTO (все бэнды)': 'AUTO (todas las bandas)',
     'в эфире': 'en el aire',
     'Развернуть': 'Ampliar',
     '⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе тест измерит чужой канал. Применимо только для РФ.': '⚠ El teléfono debe estar conectado a la Wi-Fi de este mismo router — si no, la prueba medirá otro enlace. Solo aplicable en Rusia.',

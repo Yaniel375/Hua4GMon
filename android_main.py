@@ -80,7 +80,6 @@ from kivy.properties import (
 )
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -97,6 +96,7 @@ from core import (
     MIMO_LABELS,
     RAT_LABELS,
     REGION_BANDS,
+    SIGNAL_THRESHOLDS,
     SUN_CARD_BG,
     UPLINK_LABELS,
     DemoModem,
@@ -160,31 +160,32 @@ _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 def _rgba(color: str, alpha: float = 1.0) -> list[float]:
     """'#RRGGBB' → [r/255, g/255, b/255, alpha] con el hex EXACTO.
 
-    Kivy trunca int(v*255) al renderizar: el verde #0CA663 escrito como
-    [0.05, 0.65, 0.39] se veía #0CA563. Con int/255 el hex renderizado
-    es exactamente el de diseño.
+    Kivy trunca int(v*255) al renderizar: el acento #2DD4BF escrito
+    como [0.18, 0.83, 0.75] se vería #2DD4BE. Con int/255 el hex
+    renderizado es exactamente el de diseño.
     """
     h = color.lstrip('#')
     return [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)] + [alpha]
 
 
-# Paleta NetMonster Pro (prompt §3): UN SOLO SITIO. Toda la interfaz
-# — pantallas, botones, spinners, popups, gráfico — toma sus colores
-# de aquí (vía THEMES / app.c_* / STATUS_HEX); no hay hex ni flotantes
-# sueltos fuera de este bloque, de SKIN_SIGNAL_COLORS ni de los
-# degradados que derivan de STATUS_HEX.
+# Paleta Estilo A — Instrumento oscuro moderno (spec §1): UN SOLO
+# SITIO. Toda la interfaz — pantallas, botones, spinners, popups,
+# gráfico — toma sus colores de aquí (vía THEMES / app.c_* /
+# STATUS_HEX); no hay hex ni flotantes sueltos fuera de este bloque,
+# de SKIN_SIGNAL_COLORS ni de los degradados que derivan de STATUS_HEX.
 PALETTE_HEX: dict[str, dict[str, str]] = {
-    # Piel NetMonster: fondo casi negro, tarjetas apenas más claras
-    # y un solo verde de marca #0CA663.
+    # Estilo A: fondo azul noche, tarjetas apenas más claras y un
+    # solo acento teal #2DD4BF (solo activos y botones primarios).
     'dark': {
-        'c_bg': '#111411', 'c_card': '#1E1E1E', 'c_text': '#FFFFFF',
-        'c_sub': '#99A0A5', 'c_accent': '#0CA663', 'c_button2': '#1E1E1E',
-        'c_graph_bg': '#161616', 'c_grid': '#282D28',
-        'c_btn_border': '#3A3A3A', 'c_on_accent': '#0A1E16',
-        'c_sep': '#282D28', 'c_border': '#3A3A3A', 'c_nodata': '#808080',
-        'c_btn_down': '#333333', 'c_accent_down': '#0A7F4C',
-        'c_graph_line': '#0CA663', 'c_graph_nr': '#FFA633',
-        'c_peak': '#FFFFFF',
+        'c_bg': '#0B0F14', 'c_card': '#121923', 'c_text': '#F1F5F9',
+        'c_sub': '#94A3B8', 'c_accent': '#2DD4BF', 'c_button2': '#1E2835',
+        'c_graph_bg': '#0F151D', 'c_grid': '#1E2835',
+        'c_btn_border': '#1E2835', 'c_on_accent': '#05201C',
+        'c_sep': '#1E2835', 'c_border': '#1E2835', 'c_nodata': '#808080',
+        'c_on_warn': '#1A1A1A',
+        'c_btn_down': '#2C3E55', 'c_accent_down': '#0D9488',
+        'c_graph_line': '#2DD4BF', 'c_graph_nr': '#FFA633',
+        'c_peak': '#FACC15',
     },
     # «Солнце»: máximo contraste para la pantalla bajo el sol directo.
     'sun': {
@@ -193,6 +194,7 @@ PALETTE_HEX: dict[str, dict[str, str]] = {
         'c_graph_bg': '#FFFFFF', 'c_grid': '#CCCCCC',
         'c_btn_border': '#000000', 'c_on_accent': '#FFFFFF',
         'c_sep': '#CCCCCC', 'c_border': '#000000', 'c_nodata': '#808080',
+        'c_on_warn': '#1A1A1A',
         'c_btn_down': '#B3B8BF', 'c_accent_down': '#003D8F',
         'c_graph_line': '#0066A6', 'c_graph_nr': '#A64D00',
         'c_peak': '#333333',
@@ -208,12 +210,21 @@ THEMES['sun']['c_btn_border'] = _rgba('#000000', 0.0)
 THEMES['sun']['c_border'] = _rgba('#000000', 0.0)
 
 
-# Colores de estado (misma paleta: un verde, un ámbar, un rojo, un azul
-# y un gris — sin valores sueltos). Se pasan por skin_hex/hex_to_rgba,
-# que en tema sol los oscurecen para un contraste ≥ 4,5:1.
+# Colores de estado (misma paleta: verde, ámbar, rojo, azul y gris
+# — sin valores sueltos). Se pasan por skin_hex/hex_to_rgba, que en
+# tema sol los oscurecen para un contraste ≥ 4,5:1.
 STATUS_HEX: dict[str, str] = {
-    'good': '#0CA663', 'warn': '#EAB308', 'error': '#EF4444',
+    'good': '#22C55E', 'warn': '#FACC15', 'error': '#EF4444',
     'info': '#3399FF', 'nodata': '#808080',
+}
+
+
+# Escala semántica de señal Estilo A (spec §1): excelente, buena,
+# regular, mala, crítica. La usan las zonas del gráfico y la barra
+# de las tarjetas de métricas.
+SEMANTIC_HEX: dict[str, str] = {
+    'excellent': '#22C55E', 'good': '#84CC16', 'regular': '#FACC15',
+    'bad': '#F97316', 'critical': '#EF4444',
 }
 
 
@@ -233,8 +244,9 @@ FONT: dict[str, float] = {
 }
 
 
-# Radios del sistema (dp): botones 10, tarjetas 12, chips 6, píldora 16.
-RADIUS: dict[str, int] = {'card': 12, 'button': 10, 'chip': 6, 'pill': 16}
+# Radios del sistema (dp, spec §2): tarjetas 20, métricas 16,
+# botones 14, chips 6, píldora 16.
+RADIUS: dict[str, int] = {'card': 20, 'metric': 16, 'button': 14, 'chip': 6, 'pill': 16}
 
 
 def unit_of(param: str) -> str:
@@ -248,20 +260,22 @@ def fmt_num(value: float | None) -> str:
     return str(value) if isinstance(value, int) else f"{value:g}"
 
 
-# Piel NetMonster: los colores de calidad de señal del núcleo
+# Estilo A: los colores de calidad de señal del núcleo
 # (verde/ámbar/rojo de SIGNAL_THRESHOLDS y de la salud general) se
-# traducen a la paleta de la piel. La lógica y los umbrales no cambian;
+# traducen a la escala semántica. La lógica y los umbrales no cambian;
 # solo el color que se muestra. Lo no listado pasa tal cual.
 SKIN_SIGNAL_COLORS: dict[str, str] = {
-    '#00b894': STATUS_HEX['good'], '#2ecc71': STATUS_HEX['good'], '#33cc66': STATUS_HEX['good'],
-    'green': STATUS_HEX['good'],
-    '#fdcb6e': STATUS_HEX['warn'], '#e68033': STATUS_HEX['warn'], 'orange': STATUS_HEX['warn'],
-    '#d63031': STATUS_HEX['error'], '#d93333': STATUS_HEX['error'], 'red': STATUS_HEX['error'],
+    '#00b894': SEMANTIC_HEX['excellent'], '#2ecc71': SEMANTIC_HEX['good'],
+    '#33cc66': SEMANTIC_HEX['good'], 'green': SEMANTIC_HEX['excellent'],
+    '#fdcb6e': SEMANTIC_HEX['regular'], '#e68033': SEMANTIC_HEX['bad'],
+    'orange': SEMANTIC_HEX['bad'],
+    '#d63031': SEMANTIC_HEX['critical'], '#d93333': SEMANTIC_HEX['critical'],
+    'red': SEMANTIC_HEX['critical'],
 }
 
 
 def skin_hex(color: str) -> str:
-    """Color de señal del núcleo → color de la piel NetMonster."""
+    """Color de señal del núcleo → color de la escala semántica."""
     return SKIN_SIGNAL_COLORS.get(color, SKIN_SIGNAL_COLORS.get(color.lower(), color))
 
 
@@ -476,13 +490,98 @@ class CardLabel(Label):
             1, available / max(1, width), max(1, self.height - dp(2)) / max(1, height))
 
 
+def _threshold_zones(param: str, y_min: float, y_max: float) -> list[tuple[float, float, str]]:
+    """Bandas de calidad de un parámetro, recortadas a [y_min, y_max]:
+    (valor inferior, valor superior, color del núcleo).
+
+    Las reglas de SIGNAL_THRESHOLDS van de mejor a peor con umbrales
+    descendentes; la última (umbral None) es la peor banda, bajo el
+    umbral más bajo. La lógica y los umbrales no cambian; solo se
+    dibujan como zonas (barra de la tarjeta y fondo del gráfico).
+    """
+    rules = SIGNAL_THRESHOLDS.get(param, [])
+    zones: list[tuple[float, float, str]] = []
+    for i, (_thr, _text, color, _pct) in enumerate(rules):
+        thr = rules[i][0]
+        if i == 0:
+            # La mejor banda: desde su umbral hasta arriba.
+            lo = thr if thr is not None else y_min
+            hi = y_max
+        elif thr is None:
+            # La peor banda (fallback): bajo el umbral más bajo.
+            lo, hi = y_min, rules[i - 1][0]
+        else:
+            lo, hi = thr, rules[i - 1][0]
+        if lo is None:
+            lo = y_min
+        if hi is None:
+            hi = y_max
+        lo = max(y_min, min(y_max, lo))
+        hi = max(y_min, min(y_max, hi))
+        if hi > lo:
+            zones.append((lo, hi, color))
+    return zones
+
+
+class ZoneBar(Widget):
+    """Barra de calidad de una tarjeta de métrica (Estilo A §2/§3):
+    zonas de color tenues según los umbrales de SIGNAL_THRESHOLDS
+    del parámetro, y un marcador claro en la posición del valor.
+
+    La lógica y los umbrales no cambian (son los del núcleo); solo
+    se dibujan como zonas en vez de un relleno de un solo color.
+    """
+
+    param = StringProperty('')
+    pct = NumericProperty(0)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.bind(pos=self._redraw, size=self._redraw,
+                  param=self._redraw, pct=self._redraw)
+
+    def _redraw(self, *_args: Any) -> None:
+        from kivy.graphics import Color, Line, Rectangle
+        self.canvas.clear()
+        if self.width <= 0 or self.height <= 0:
+            return
+        app = App.get_running_app()
+        sun = bool(app and app.theme_name == 'sun')
+        lo, hi = _METRIC_RANGES.get(self.param, (0.0, 100.0))
+        span = hi - lo or 1.0
+
+        def x_of(value: float) -> float:
+            frac = (max(lo, min(hi, value)) - lo) / span
+            return self.x + self.width * frac
+
+        rules = _threshold_zones(self.param, lo, hi)
+        with self.canvas:
+            Color(*(app.c_sep if app else (0.16, 0.18, 0.16, 1)))
+            Rectangle(pos=self.pos, size=self.size)
+            # Bandas de calidad según los umbrales del núcleo.
+            for zone_lo, zone_hi, zone_col in rules:
+                x1, x2 = x_of(zone_lo), x_of(zone_hi)
+                if x2 <= x1:
+                    continue
+                rgba = hex_to_rgba(skin_hex(zone_col), sun)
+                Color(rgba[0], rgba[1], rgba[2], 0.25)
+                Rectangle(pos=(x1, self.y), size=(x2 - x1, self.height))
+            # Marcador del valor actual (color del texto: blanco en
+            # oscuro, negro en sol).
+            marker = app.c_text if app else (1, 1, 1, 1)
+            Color(*marker)
+            mx = self.x + self.width * max(0.0, min(100.0, self.pct)) / 100.0
+            Line(points=[mx, self.y, mx, self.top], width=dp(2),
+                 cap='round')
+
+
 class IconWidget(Widget):
     """Icono vectorial de líneas (sin emojis): se dibuja con canvas.
 
     Coordenadas relativas al centro y al lado menor del widget, así el
     mismo icono sirve en la tarjeta de Conexión, en el Menú y en los
-    botones. Iconos: info, radar, gear, sun, power, router, lock,
-    eye, eye_off, expand, check, signal, network, menu.
+    botones. Iconos: info, radar, gear, sun, moon, power, router, lock,
+    eye, eye_off, expand, check, signal, network, tower, menu.
     """
     icon = StringProperty('')
     icon_color = ListProperty([1, 1, 1, 1])
@@ -542,6 +641,11 @@ class IconWidget(Widget):
                 self._circle(cx, cy, 0.32 * r)
                 self._rays(cx, cy, 0.48 * r, 0.82 * r,
                            [0, 45, 90, 135, 180, 225, 270, 315])
+            elif self.icon == 'moon':
+                # Luna creciente (menú: tema): arco exterior y arco
+                # interior que se encuentran en las dos puntas.
+                self._circle(cx, cy, 0.7 * r, 45, 315)
+                self._circle(cx + 0.3 * r, cy, 0.53 * r, 69, 291)
             elif self.icon == 'power':
                 self._circle(cx, cy, 0.68 * r, 40, 320)
                 self._line([cx, cy + 0.88 * r, cx, cy + 0.18 * r])
@@ -586,11 +690,27 @@ class IconWidget(Widget):
                     self._line([cx + dx * r, cy - 0.55 * r,
                                 cx + dx * r, cy - 0.55 * r + h * r])
             elif self.icon == 'network':
-                # Deslizadores (barra inferior: Red / bandas).
-                for dy, dx in ((0.45, -0.3), (0, 0.35), (-0.45, -0.05)):
-                    self._line([cx - 0.8 * r, cy + dy * r,
-                                cx + 0.8 * r, cy + dy * r])
-                    self._dot(cx + dx * r, cy + dy * r, 0.14 * r)
+                # Deslizadores verticales (Red / bandas en otras pantallas):
+                # tres rieles con su perilla bien visible. Los
+                # deslizadores horizontales se leían como la hamburguesa
+                # del Menú (las perillas se perdían a 24 dp).
+                for dx, ky in ((-0.55, 0.35), (0, -0.3), (0.55, 0.1)):
+                    self._line([cx + dx * r, cy - 0.7 * r,
+                                cx + dx * r, cy + 0.7 * r])
+                    self._dot(cx + dx * r, cy + ky * r, 0.18 * r)
+            elif self.icon == 'tower':
+                # Torre de antena (barra inferior: Red): mástil con
+                # travesaños y dos ondas de señal arriba.
+                self._line([cx - 0.45 * r, cy - 0.8 * r, cx, cy + 0.35 * r,
+                            cx + 0.45 * r, cy - 0.8 * r])
+                self._line([cx - 0.45 * r, cy - 0.8 * r,
+                            cx + 0.45 * r, cy - 0.8 * r])
+                self._line([cx - 0.28 * r, cy - 0.35 * r,
+                            cx + 0.28 * r, cy - 0.35 * r])
+                self._line([cx - 0.14 * r, cy + 0.05 * r,
+                            cx + 0.14 * r, cy + 0.05 * r])
+                self._circle(cx, cy + 0.35 * r, 0.3 * r, 20, 160)
+                self._circle(cx, cy + 0.35 * r, 0.5 * r, 20, 160)
             elif self.icon == 'menu':
                 # Hamburguesa (barra inferior: Menú).
                 for dy in (0.5, 0, -0.5):
@@ -606,7 +726,8 @@ class LiveDot(Widget):
         self._pulse: Any = None
 
     def start(self) -> None:
-        self.stop()
+        if self._pulse is not None:
+            return
         from kivy.animation import Animation
         self._pulse = Animation(opacity=0.35, d=0.8) + Animation(opacity=1, d=0.8)
         self._pulse.repeat = True
@@ -619,13 +740,21 @@ class LiveDot(Widget):
         self.opacity = 1
 
 
-class BandCheckBox(CheckBox):
+class BandCheckBox(Widget):
     """Casilla de banda solo visual: el toque lo gestiona su tarjeta.
+
+    Antes era un CheckBox, pero su canvas dibujaba el fondo blanco del
+    atlas de Kivy aunque las imágenes estuvieran vacías (un BorderImage
+    sin textura se pinta blanco), así que en el teléfono la casilla se
+    veía como un cuadrado blanco grande. Como Widget simple dibuja solo
+    su propia caja (borde + relleno + marca, en la regla KV), sin fondo.
 
     Sin esto, tocar la casilla la cambiaría una vez y la tarjeta otra,
     y el estado quedaría igual. El estado se lee y se escribe igual
     que antes (band_vars: .active), así la lógica no cambia.
     """
+
+    active = BooleanProperty(False)
 
     def on_touch_down(self, touch: Any) -> bool:
         return False
@@ -720,6 +849,13 @@ class SignalGraph(Widget):
     def _y_range(self) -> tuple[float, float]:
         return self.viewport.y_range()
 
+    def _zones(self, y_min: float, y_max: float) -> list[tuple[float, float, str]]:
+        """Bandas de calidad del parámetro actual, recortadas al rango
+        visible: (valor inferior, valor superior, color del núcleo).
+        Usa los mismos umbrales que la lógica de señal; solo dibuja.
+        """
+        return _threshold_zones(self._param, y_min, y_max)
+
     def _fill_under_line(self, x0: float, y0: float, plot_w: float, plot_h: float,
                          segs: list[tuple[float, float, float, float]],
                          line_col: tuple[float, float, float, float]) -> None:
@@ -761,6 +897,7 @@ class SignalGraph(Widget):
         from kivy.graphics import Color, Ellipse, Line, Rectangle
         app = App.get_running_app()
         theme = THEMES[app.theme_name] if app else THEMES['dark']
+        sun = bool(app and app.theme_name == 'sun')
         text_col = tuple(theme['c_sub'])
         self.canvas.clear()
         w, h = self.width, self.height
@@ -775,14 +912,30 @@ class SignalGraph(Widget):
         def y_of(v: float) -> float:
             return y0 + plot_h * (max(y_min, min(y_max, v)) - y_min) / rng
 
+        # Estilo A §3: eje Y en pasos fijos de 10 dB (no autoescalado).
+        step = 10.0
+        grid_vals: list[float] = []
+        v = math.ceil(y_min / step) * step
+        while v <= y_max + 1e-9:
+            grid_vals.append(float(v))
+            v += step
+        if not grid_vals:
+            grid_vals = [y_min, y_max]
+
         with self.canvas:
             Color(*theme['c_graph_bg'])
             Rectangle(pos=self.pos, size=self.size)
-            for i in range(5):
-                gy = y0 + plot_h * i / 4
+            # Zonas de calidad tenues de fondo (escala semántica).
+            for zone_lo, zone_hi, zone_col in self._zones(y_min, y_max):
+                rgba = hex_to_rgba(skin_hex(zone_col), sun)
+                Color(rgba[0], rgba[1], rgba[2], 0.10)
+                Rectangle(pos=(x0, y_of(zone_lo)),
+                          size=(plot_w, y_of(zone_hi) - y_of(zone_lo)))
+            for gv in grid_vals:
+                gy = y_of(gv)
                 Color(*theme['c_grid'])
                 Line(points=[x0, gy, x0 + plot_w, gy], width=1)
-                tex = self._texture(f"{y_min + rng * i / 4:.0f}", sp(FONT['small']), text_col)
+                tex = self._texture(f"{gv:.0f}", sp(FONT['small']), text_col)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(x0 - tex.width - dp(4), gy - tex.height / 2),
                           size=tex.size)
@@ -791,21 +944,23 @@ class SignalGraph(Widget):
                                 tuple(theme['c_text']), True)
             Color(1, 1, 1, 1)
             Rectangle(texture=tex, pos=(x0, self.y + h - dp(19)), size=tex.size)
+            # Estilo A §3: etiquetas de tiempo en los extremos de la
+            # ventana ("-15 min … ahora"), no una etiqueta centrada.
             start, end = self.viewport.x_range()
-            if self.viewport.times and end < self.viewport.times[-1]:
-                latest = self.viewport.times[-1]
-                time_label = t("От {a:.0f} до {b:.0f} с назад").format(
-                    a=latest - start, b=latest - end)
+            span = max(0.0, end - start)
+            if span >= 60:
+                left_label = t("−{n} мин").format(n=round(span / 60))
             else:
-                time_label = t("Последние {s:.0f} с").format(s=end - start)
-            tex = self._texture(time_label, sp(FONT['tiny']), text_col)
-            Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2, self.y + dp(3)),
+                left_label = t("−{n} с").format(n=round(span))
+            tex = self._texture(left_label, sp(FONT['tiny']), text_col)
+            Rectangle(texture=tex, pos=(x0, self.y + dp(3)), size=tex.size)
+            tex = self._texture(t("сейчас"), sp(FONT['tiny']), text_col)
+            Rectangle(texture=tex, pos=(x0 + plot_w - tex.width, self.y + dp(3)),
                       size=tex.size)
 
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                # El pico se marca con una línea punteada, como el umbral
-                # de los gráficos NetMonster.
+                # El pico se marca con una línea punteada ámbar.
                 Color(*theme['c_peak'])
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
@@ -833,7 +988,15 @@ class SignalGraph(Widget):
                     lx, ly, r = x0 + plot_w * point[0], y0 + plot_h * point[1], dp(3)
                     Ellipse(pos=(lx - r, ly - r), size=(2 * r, 2 * r))
                 name = radio_label(param) if comparison_param(param) else PARAM_TITLES.get(param, param)
-                label = f"{name}: {fmt_num(self.viewport.latest_value(comparison))} {unit_of(param)}"
+                latest = self.viewport.latest_value(comparison)
+                # Sin valor actual no hay leyenda de comparación: antes
+                # salía «NR: - dB» cuando la serie NR tenía historial
+                # pero ningún dato reciente (su último instante es más
+                # viejo que el de LTE). La serie principal conserva su
+                # leyenda aunque no haya datos (el guion ahí sí informa).
+                if comparison and latest is None:
+                    continue
+                label = f"{name}: {fmt_num(latest)} {unit_of(param)}"
                 tex = self._texture(label, sp(FONT['small']), line_col, True)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex,
@@ -953,8 +1116,7 @@ KV = """
 # (kivy.uix.actionbar.ActionButton) y Kivy ignoraría esta regla,
 # lo que rompía los diálogos (botón de 10128 px, bucle textura↔ancho).
 <PrimaryButton@Button>:
-    size_hint_x: 0.9
-    pos_hint: {'center_x': 0.5}
+    size_hint_x: 1
     text_size: self.size
     halign: 'center'
     valign: 'middle'
@@ -964,10 +1126,12 @@ KV = """
     color: app.c_on_accent
     font_size: sp(FONT['value'])
     size_hint_y: None
-    height: dp(52)
+    height: dp(48)
     canvas.before:
         Color:
-            rgba: app.c_accent if self.state == 'normal' else app.c_accent_down
+            # Estilo A §4.8: desactivado (sin cambios que aplicar) se
+            # ve gris; en uso, acento o su tono al pulsar.
+            rgba: app.c_nodata if self.disabled else (app.c_accent if self.state == 'normal' else app.c_accent_down)
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -1119,6 +1283,14 @@ KV = """
             pos: self.pos
             size: self.size
             radius: [dp(RADIUS['card'])]
+    # Borde fino como MetricCard: sin él las tarjetas se fundían con
+    # el fondo y cada pantalla parecía de otra app.
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
+            width: dp(1)
 
 <AutoLabel@Label>:
     font_size: sp(FONT['body'])
@@ -1141,10 +1313,13 @@ KV = """
 # m_color por defecto es el gris "sin datos" = c_nodata (#808080).
 # No se puede poner app.c_nodata aquí: al construir el widget el
 # binding aún no se evaluó y m_color llega None al canvas.
+# Estilo A §2: valor grande con la unidad pequeña y en gris, barra
+# con zonas de color y marcador (ZoneBar), estado y "▲ máx X".
 <MetricCard@BoxLayout>:
     orientation: 'vertical'
     m_name: ''
-    m_value: '-'
+    m_num: '-'
+    m_unit: ''
     m_status: ''
     m_peak: ''
     m_color: 0.5, 0.5, 0.5, 1
@@ -1158,12 +1333,12 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(RADIUS['card'])]
+            radius: [dp(RADIUS['metric'])]
     canvas.after:
         Color:
             rgba: app.c_border
         Line:
-            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['metric'])
             width: dp(1)
     CardLabel:
         caption: root.m_name
@@ -1171,26 +1346,35 @@ KV = """
         bold: True
         color: app.c_sub
         size_hint_y: 0.17
-    CardLabel:
-        caption: root.m_value
-        base_size: root.value_size
-        bold: True
-        color: app.c_text
+    BoxLayout:
+        orientation: 'horizontal'
         size_hint_y: 0.43
-    Widget:
+        CardLabel:
+            caption: root.m_num
+            base_size: root.value_size
+            bold: True
+            color: app.c_text
+            halign: 'left'
+            valign: 'bottom'
+        Label:
+            text: root.m_unit
+            font_size: sp(FONT['hint'])
+            color: app.c_sub
+            size_hint: None, None
+            size: self.texture_size
+            pos_hint: {'y': 0}
+            # Sin text_size: atar el tamaño a la propia textura con
+            # text_size creaba el bucle textura↔ancho de D1 y la unidad
+            # salía cortada («B» en vez de «dB»). Sin text_size la
+            # textura se dibuja natural, abajo a la izquierda, alineada
+            # con la base del número.
+            halign: 'left'
+            valign: 'bottom'
+    ZoneBar:
+        param: root.m_name.lower()
+        pct: root.m_pct
         size_hint_y: None
         height: dp(5)
-        canvas.before:
-            Color:
-                rgba: app.c_sep
-            Rectangle:
-                pos: self.pos
-                size: self.size
-            Color:
-                rgba: root.m_color
-            Rectangle:
-                pos: self.pos
-                size: self.width * root.m_pct / 100, self.height
     # Etapa 6: la fila de estado tenía 0,15 (15,4 dp) y su textura
     # mide 16 px, así que CardLabel la achicaba a 10,9 sp en todos
     # los tamaños; con 0,19 (19,6 dp) cabe a 13 sp sin encoger.
@@ -1242,6 +1426,30 @@ KV = """
         text_size: self.size
         halign: 'right'
         valign: 'middle'
+
+# Estilo A §3: celda de Información LTE: etiqueta pequeña arriba y
+# valor abajo, en una cuadrícula de dos columnas. Los ids y la
+# propiedad `value` son los mismos que ParamRow, así que _render no
+# cambia: solo cambia la presentación.
+<ParamCell@BoxLayout>:
+    label: ''
+    value: '—'
+    orientation: 'vertical'
+    size_hint_y: None
+    height: dp(44)
+    spacing: dp(1)
+    CardLabel:
+        caption: root.label
+        base_size: sp(FONT['small'])
+        color: app.c_sub
+        size_hint_y: 0.38
+    CardLabel:
+        caption: root.value
+        base_size: sp(FONT['value'])
+        bold: True
+        color: app.c_text
+        size_hint_y: 0.62
+
 # Original mejorado: un segmento de la barra de salud.
 <Seg@Widget>:
     lit: False
@@ -1331,7 +1539,9 @@ KV = """
 <NavItem>:
     orientation: 'vertical'
     spacing: dp(2)
-    padding: dp(2), dp(7)
+    # Sin padding horizontal: «Información» en negrita (75 px) no cabía
+    # en la etiqueta (73 px) y salía «Informaci…» en el ítem activo.
+    padding: dp(0), dp(7)
     canvas.before:
         Color:
             rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.active else (0, 0, 0, 0)
@@ -1397,7 +1607,9 @@ KV = """
         active: root.section == 'info'
         on_release: app.go(self.target)
     NavItem:
-        icon: 'network'
+        # Estilo A §4.4: Red lleva la torre de antena; los cuatro
+        # accesos tienen iconos distintos (señal, info, torre, menú).
+        icon: 'tower'
         label: app.lbl_nav_tools
         target: 'tools'
         active: root.section == 'tools'
@@ -1492,13 +1704,11 @@ KV = """
             pos: self.pos
             size: self.size
 
-# Etapa 4: casilla de banda de 24 dp, dibujada a escala (la regla
-# ThemedCheckBox usa medidas absolutas para 40 dp).
+# Rediseño premium: casilla de banda de 24 dp, dibujada a escala y sin
+# fondo blanco: BandCheckBox ya no es un CheckBox (su canvas pintaba el
+# atlas aunque las imágenes estuvieran vacías), así que la regla solo
+# dibuja la caja, el relleno y la marca.
 <BandCheckBox>:
-    background_checkbox_normal: ''
-    background_checkbox_down: ''
-    background_checkbox_disabled_normal: ''
-    background_checkbox_disabled_down: ''
     canvas.after:
         Color:
             rgba: app.c_accent if self.active else app.c_border
@@ -1527,6 +1737,10 @@ KV = """
     # el canvas lo lee (en canvas no se puede usar ids.cb: al evaluar
     # las instrucciones la casilla aún no está en ids).
     active: False
+    # Detectada en el aire: un punto verde a la derecha de la tarjeta
+    # (la leyenda vive bajo la rejilla). El texto «en el aire» no cabe
+    # en una línea junto a la frecuencia y se partía a mitad de frase.
+    observed: False
     orientation: 'horizontal'
     size_hint_y: None
     height: dp(60)
@@ -1554,15 +1768,27 @@ KV = """
         pos_hint: {'center_y': 0.5}
     BoxLayout:
         orientation: 'vertical'
-        Label:
-            text: root.name
-            font_size: sp(FONT['value'])
-            bold: True
-            color: app.c_text
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_y: 0.55
-            text_size: self.size
-            halign: 'left'
-            valign: 'middle'
+            Label:
+                text: root.name
+                font_size: sp(FONT['value'])
+                bold: True
+                color: app.c_text
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+            Widget:
+                size_hint: None, None
+                size: dp(10), dp(10)
+                pos_hint: {'center_y': 0.5}
+                canvas:
+                    Color:
+                        rgba: app.c_accent if root.observed else (0, 0, 0, 0)
+                    Ellipse:
+                        pos: self.pos
+                        size: self.size
         Label:
             text: root.sub
             font_size: sp(FONT['small'])
@@ -1571,6 +1797,10 @@ KV = """
             text_size: self.size
             halign: 'left'
             valign: 'middle'
+            # Por si una frecuencia futura es más larga: se acorta con
+            # puntos, nunca se parte en dos líneas.
+            shorten: True
+            shorten_from: 'right'
 
 # Etapa 4: ítem del Menú como tarjeta (icono en pastilla verde,
 # nombre + descripción, flecha): como la hoja inferior del preview.
@@ -1760,7 +1990,7 @@ ScreenManager:
             pos: self.pos
             size: self.size
     ScrollView:
-        bar_width: dp(8)
+        bar_width: 0
         bar_color: app.c_sub
         bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
         scroll_type: ['bars', 'content']
@@ -1911,9 +2141,13 @@ ScreenManager:
             size: self.size
     BoxLayout:
         orientation: 'vertical'
-        padding: dp(8)
+        # Estilo A §2: padding lateral mínimo 16 dp; vertical 8 dp
+        # (el margen inferior de la barra es el área segura).
+        padding: dp(16), dp(8)
         spacing: dp(6)
-        # Cabecera del operador (como en la vista previa).
+        # Cabecera del operador (como en la vista previa). Estilo A
+        # §4.2: solo esta barra es fija; el ancla y la fila en vivo
+        # van dentro del scroll, con margen.
         BoxLayout:
             size_hint_y: None
             height: dp(58)
@@ -1979,41 +2213,8 @@ ScreenManager:
                                 size: self.size
                                 radius: [dp(RADIUS['chip'])]
         GreenRule:
-        # Línea de ancla (solo si el router da bandas).
-        BoxLayout:
-            id: anchor_box
-            size_hint_y: None
-            height: dp(30) if root.anchor_visible else 0
-            opacity: 1 if root.anchor_visible else 0
-            Label:
-                id: anchor_lbl
-                text: ''
-                font_size: sp(FONT['body'])
-                bold: True
-                color: app.c_text
-                markup: True
-                text_size: self.size
-                halign: 'left'
-                valign: 'middle'
-        # Fila en vivo (punto que late + texto): en modo de prueba dice DEMO.
-        BoxLayout:
-            size_hint_y: None
-            height: dp(22)
-            spacing: dp(7)
-            LiveDot:
-                id: live_dot
-                pos_hint: {'center_y': 0.5}
-            Label:
-                id: live_lbl
-                text: ''
-                font_size: sp(FONT['label'])
-                bold: True
-                color: app.c_sub
-                text_size: self.size
-                halign: 'left'
-                valign: 'middle'
         ScrollView:
-            bar_width: dp(8)
+            bar_width: 0
             bar_color: app.c_sub
             bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
@@ -2022,26 +2223,9 @@ ScreenManager:
                 size_hint_y: None
                 height: self.minimum_height
                 spacing: dp(10)
-                # Tarjetas de métricas 2x2 (como en el preview): valor
-                # grande, palabra de calidad con su punto, barra fina
-                # y el pico de la sesión en la esquina.
-                GridLayout:
-                    cols: 2
-                    size_hint_y: None
-                    height: dp(258)
-                    spacing: dp(10)
-                    MetricCard:
-                        id: sinr_card
-                        m_name: 'SINR'
-                    MetricCard:
-                        id: rsrp_card
-                        m_name: 'RSRP'
-                    MetricCard:
-                        id: rsrq_card
-                        m_name: 'RSRQ'
-                    MetricCard:
-                        id: rssi_card
-                        m_name: 'RSSI'
+                # Estilo A §3: anillo de salud arriba, con el estado
+                # en texto (health_lbl, en el color semántico del
+                # anillo) y la barra de 20 segmentos.
                 SectionCard:
                     SectionHead:
                         text: root.lbl_health
@@ -2095,40 +2279,125 @@ ScreenManager:
                                 Seg:
                     HintLabel:
                         text: root.lbl_health_note
+                # Línea de ancla (solo si el router da bandas).
+                BoxLayout:
+                    id: anchor_box
+                    size_hint_y: None
+                    height: dp(30) if root.anchor_visible else 0
+                    opacity: 1 if root.anchor_visible else 0
+                    Label:
+                        id: anchor_lbl
+                        text: ''
+                        font_size: sp(FONT['body'])
+                        bold: True
+                        color: app.c_text
+                        markup: True
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'middle'
+                # Fila en vivo: en real, punto verde + texto «En el
+                # aire»; en demo, pastilla ámbar «DEMO · datos
+                # simulados» a lo ancho de la fila, sin punto verde
+                # (Estilo A §4.6). Son dos filas apiladas con altura
+                # explícita: la oculta mide 0 dp. (Un size_hint 0 no
+                # colapsa al hijo en BoxLayout: la etiqueta quedaba en
+                # 42 dp y la pastilla se salía 10 dp a la derecha.)
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: dp(22)
+                    BoxLayout:
+                        id: live_row
+                        orientation: 'horizontal'
+                        size_hint_y: None
+                        height: dp(22) if not root.demo_mode else 0
+                        spacing: dp(7)
+                        opacity: 0 if root.demo_mode else 1
+                        LiveDot:
+                            id: live_dot
+                            pos_hint: {'center_y': 0.5}
+                        Label:
+                            id: live_lbl
+                            text: ''
+                            font_size: sp(FONT['label'])
+                            bold: True
+                            color: app.c_sub
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                    Label:
+                        id: demo_pill
+                        text: root.lbl_demo
+                        font_size: sp(FONT['label'])
+                        bold: True
+                        color: app.c_on_warn
+                        size_hint_y: None
+                        height: dp(22) if root.demo_mode else 0
+                        opacity: 1 if root.demo_mode else 0
+                        text_size: self.size
+                        halign: 'center'
+                        valign: 'middle'
+                        canvas.before:
+                            Color:
+                                rgba: hex_to_rgba(STATUS_HEX['warn'], app.theme_name == 'sun')
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(11)]
+                # Tarjetas de métricas 2x2 (como en el preview): valor
+                # grande, palabra de calidad con su punto, barra fina
+                # y el pico de la sesión en la esquina.
+                GridLayout:
+                    cols: 2
+                    size_hint_y: None
+                    height: dp(258)
+                    spacing: dp(10)
+                    MetricCard:
+                        id: sinr_card
+                        m_name: 'SINR'
+                    MetricCard:
+                        id: rsrp_card
+                        m_name: 'RSRP'
+                    MetricCard:
+                        id: rsrq_card
+                        m_name: 'RSRQ'
+                    MetricCard:
+                        id: rssi_card
+                        m_name: 'RSSI'
                 SectionHead:
                     text: root.lbl_info_lte
-                BoxLayout:
+                # Estilo A §3: Información LTE en dos columnas con la
+                # etiqueta pequeña arriba y el valor abajo (ParamCell).
+                # Los ids son los mismos que antes: _render no cambia.
+                GridLayout:
+                    cols: 2
                     size_hint_y: None
-                    height: dp(136)
-                    spacing: dp(26)
-                    BoxLayout:
-                        orientation: 'vertical'
-                        ParamRow:
-                            id: ci_row
-                            key: 'CI'
-                        ParamRow:
-                            id: enb_row
-                            key: 'ENB:CID'
-                        ParamRow:
-                            id: tac_row
-                            key: 'TAC'
-                        ParamRow:
-                            id: pci_row
-                            key: 'PCI'
-                    BoxLayout:
-                        orientation: 'vertical'
-                        ParamRow:
-                            id: earfcn_row
-                            key: 'EARFCN'
-                        ParamRow:
-                            id: banda_row
-                            key: 'BANDA'
-                        ParamRow:
-                            id: ancho_row
-                            key: 'ANCHO'
-                        ParamRow:
-                            id: modo_row
-                            key: 'MODO'
+                    height: dp(200)
+                    spacing: dp(8)
+                    ParamCell:
+                        id: ci_row
+                        label: 'CI'
+                    ParamCell:
+                        id: earfcn_row
+                        label: 'EARFCN'
+                    ParamCell:
+                        id: enb_row
+                        label: 'ENB:CID'
+                    ParamCell:
+                        id: banda_row
+                        label: 'BANDA'
+                    ParamCell:
+                        id: tac_row
+                        label: 'TAC'
+                    ParamCell:
+                        id: ancho_row
+                        label: 'ANCHO'
+                    ParamCell:
+                        id: pci_row
+                        label: 'PCI'
+                    ParamCell:
+                        id: modo_row
+                        label: 'MODO'
                 BoxLayout:
                     id: ca_section
                     orientation: 'vertical'
@@ -2214,6 +2483,12 @@ ScreenManager:
                     height: self.texture_size[1] if self.text else 0
                     text_size: self.width, None
                     halign: 'left'
+                # Respiro final: el botón Picos y la barra inferior van
+                # en flujo bajo el scroll (no tapan nada), pero el
+                # contenido no debe terminar pegado a ellos.
+                Widget:
+                    size_hint_y: None
+                    height: dp(8)
         PillButton:
             text: root.lbl_peaks
             size_hint_y: None
@@ -2240,7 +2515,7 @@ ScreenManager:
         GreenRule:
         ScrollView:
             id: content_scroll
-            bar_width: dp(8)
+            bar_width: 0
             bar_color: app.c_sub
             bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
@@ -2248,7 +2523,7 @@ ScreenManager:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                padding: dp(10)
+                padding: dp(16)
                 spacing: dp(10)
                 SectionCard:
                     SectionHead:
@@ -2281,12 +2556,12 @@ ScreenManager:
                         size_hint_y: None
                         height: self.minimum_height
         # Etapa 5: barra inferior. El envoltorio deja el mismo margen
-        # de 8 dp que el padding de la raíz de Señal, así la píldora
+        # de 16 dp que el padding de la raíz de Señal, así la píldora
         # flota igual en las tres pantallas.
         BoxLayout:
             size_hint_y: None
             height: dp(78)
-            padding: dp(8), dp(6), dp(8), dp(8)
+            padding: dp(16), dp(6), dp(16), dp(8)
             BottomNavBar:
                 id: nav_bar
                 section: 'info'
@@ -2306,7 +2581,7 @@ ScreenManager:
         GreenRule:
         ScrollView:
             id: content_scroll
-            bar_width: dp(8)
+            bar_width: 0
             bar_color: app.c_sub
             bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
@@ -2314,7 +2589,7 @@ ScreenManager:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                padding: dp(10)
+                padding: dp(16)
                 spacing: dp(12)
                 AutoLabel:
                     text: root.net_msg
@@ -2336,18 +2611,38 @@ ScreenManager:
                         cols: 2
                         size_hint_y: None
                         height: self.minimum_height
-                        spacing: dp(4)
+                        spacing: dp(8)
+                    # Leyenda del punto verde: el punto se dibuja (el
+                    # carácter ● en el texto saldría en gris, no en verde).
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(24)
+                        spacing: dp(6)
+                        Widget:
+                            size_hint: None, None
+                            size: dp(10), dp(10)
+                            pos_hint: {'center_y': 0.5}
+                            canvas:
+                                Color:
+                                    rgba: app.c_accent
+                                Ellipse:
+                                    pos: self.pos
+                                    size: self.size
+                        HintLabel:
+                            text: root.lbl_observed
+                            pos_hint: {'center_y': 0.5}
                     FlatButton:
                         text: root.lbl_mark_current
                         size_hint_y: None
                         height: dp(48)
                         on_release: app.mark_current_bands()
                     PrimaryButton:
+                        id: apply_bands_btn
                         text: root.lbl_apply_bands
                         on_release: app.apply_bands()
                     BoxLayout:
                         size_hint_y: None
-                        height: dp(52)
+                        height: dp(48)
                         spacing: dp(8)
                         FlatButton:
                             text: root.lbl_reset_auto
@@ -2365,6 +2660,7 @@ ScreenManager:
                         height: dp(42)
                         spacing: dp(3)
                     PrimaryButton:
+                        id: apply_antenna_btn
                         text: root.lbl_apply_antenna
                         on_release: app.apply_antenna(root.antenna_selected)
                 SectionCard:
@@ -2407,7 +2703,7 @@ ScreenManager:
         BoxLayout:
             size_hint_y: None
             height: dp(78)
-            padding: dp(8), dp(6), dp(8), dp(8)
+            padding: dp(16), dp(6), dp(16), dp(8)
             BottomNavBar:
                 id: nav_bar
                 section: 'tools'
@@ -2518,12 +2814,26 @@ class MonitorScreen(Screen):
     advice_color = ListProperty(hex_to_rgba(STATUS_HEX['warn']))
     anchor_visible = BooleanProperty(False)
     ca_visible = BooleanProperty(False)
+    demo_mode = BooleanProperty(False)
+    lbl_demo = StringProperty("")
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
+        app = App.get_running_app()
+        self.demo_mode = bool(app and app.demo_modem is not None)
         dot = self.ids.get('live_dot')
         if dot is not None:
-            dot.start()
+            if self.demo_mode:
+                # Estilo A §4.6: en demo no hay punto verde; la
+                # animación pisa el binding de opacidad, así que se
+                # apaga aquí (stop deja opacity en 1).
+                dot.stop()
+                dot.opacity = 0
+                dot.width = 0
+            else:
+                dot.width = dp(12)
+                dot.opacity = 1
+                dot.start()
 
     def on_pre_leave(self, *args: Any) -> None:
         dot = self.ids.get('live_dot')
@@ -2538,6 +2848,7 @@ class MonitorScreen(Screen):
         self.lbl_health_note = t(
             "70 % — худший параметр, 30 % — лучший, как считает приложение.")
         self.lbl_ca = t("АГРЕГАЦИЯ НЕСУЩИХ")
+        self.lbl_demo = t("DEMO · демонстрационные данные")
 
 
 class TopScrollScreen(Screen):
@@ -2574,6 +2885,7 @@ class ToolsScreen(TopScrollScreen):
     lbl_title = StringProperty("")
     lbl_bandlock = StringProperty("")
     hint_bandlock = StringProperty("")
+    lbl_observed = StringProperty("")
     lock_state = StringProperty("")
     lbl_mark_current = StringProperty("")
     lbl_apply_bands = StringProperty("")
@@ -2612,6 +2924,8 @@ class ToolsScreen(TopScrollScreen):
             "Список взят из модема; замеченные в эфире бэнды — первыми. "
             "Меняются только LTE-бэнды; «Как было» восстановит настройки, "
             "прочитанные при подключении.")
+        # Leyenda del punto verde de las tarjetas de banda.
+        self.lbl_observed = t("в эфире")
         self.lbl_mark_current = t("Отметить текущие")
         self.lbl_apply_bands = t("Применить Band Lock")
         self.lbl_reset_auto = t("Все (AUTO)")
@@ -2651,6 +2965,7 @@ class Hua4GMonApp(App):
     c_grid = ListProperty(THEMES['dark']['c_grid'])
     c_btn_border = ListProperty(THEMES['dark']['c_btn_border'])
     c_on_accent = ListProperty(THEMES['dark']['c_on_accent'])
+    c_on_warn = ListProperty(THEMES['dark']['c_on_warn'])
     c_sep = ListProperty(THEMES['dark']['c_sep'])
     c_border = ListProperty(THEMES['dark']['c_border'])
     c_nodata = ListProperty(THEMES['dark']['c_nodata'])
@@ -2685,6 +3000,11 @@ class Hua4GMonApp(App):
         self.band_vars: dict[int, Any] = {}
         self._band_list: list[int] = list(REGION_BANDS)
         self._bands_shown: Any = []
+        # Estado aplicado leído del router (Estilo A §4.8): lo que
+        # Aplicar compara para desactivarse sin cambios. None = aún
+        # no leído (entonces Aplicar queda como antes, activo).
+        self._applied_bands: frozenset[int] | None = None
+        self._applied_antenna: str | None = None
         self._busy = False
         self._discovering = False       # идёт автопоиск роутера
         self._wl_running = False        # идёт проверка белых списков
@@ -3111,13 +3431,23 @@ class Hua4GMonApp(App):
                 *(int(v * 255) for v in self.c_accent[:3]))
             ids.anchor_lbl.text = (
                 f"{t('Якорь')} [b][color={accent}]{anchor}[/color][/b]")
-        # --- Fila en vivo (o DEMO en modo de prueba) ---
-        live = ids.get('live_lbl')
-        if live is not None:
+        # --- Fila en vivo (o pastilla DEMO en modo de prueba) ---
+        # Estilo A §4.6: en demo no hay punto verde; la pastilla ámbar
+        # (demo_pill, texto en lbl_demo) sustituye a la fila en vivo.
+        scr.demo_mode = self.demo_modem is not None
+        dot = ids.get('live_dot')
+        if dot is not None:
             if self.demo_modem is not None:
-                live.text = t("Тестовый режим · демонстрационные данные").upper()
+                dot.stop()
+                dot.opacity = 0
+                dot.width = 0
             else:
-                live.text = t("В эфире · обновление каждую секунду").upper()
+                dot.width = dp(12)
+                dot.opacity = 1
+                dot.start()
+        live = ids.get('live_lbl')
+        if live is not None and self.demo_modem is None:
+            live.text = t("В эфире · обновление каждую секунду").upper()
             live.color = self.c_sub
         # --- Tarjetas de métricas (SINR/RSRP/RSRQ/RSSI) ---
         for param in ('sinr', 'rsrp', 'rsrq', 'rssi'):
@@ -3129,11 +3459,12 @@ class Hua4GMonApp(App):
             lo, hi = _METRIC_RANGES[param]
             card.m_pct = (0.0 if val is None
                           else max(0.0, min(100.0, (val - lo) / (hi - lo) * 100)))
-            card.m_value = '—' if val is None else f"{fmt_num(val)} {unit_of(param)}"
+            card.m_num = '—' if val is None else fmt_num(val)
+            card.m_unit = '' if val is None else unit_of(param)
             card.m_status = f"● {t(label)}"
             card.m_color = hex_to_rgba(skin_hex(color), sun)
             peak = self.state.peaks.get(param)
-            card.m_peak = t("пик {v}").format(
+            card.m_peak = t("▲ макс {v}").format(
                 v='—' if peak is None else fmt_num(peak))
         # --- INFORMACIÓN LTE ---
         ids.ci_row.value = _dash_num(snap.cell_id)
@@ -3154,8 +3485,10 @@ class Hua4GMonApp(App):
         ring.pct_text = f"{score}%"
         ring.ring_color = hex_to_rgba(skin_hex(color), sun)
         # El resumen trae ' ({pct}%)' al final; el porcentaje ya va en grande.
+        # Estilo A §3: el estado va en el color semántico del anillo.
         ids.health_lbl.text = (t(summary).split(" ({")[0] if snap.registered
                                else t(summary))
+        ids.health_lbl.color = hex_to_rgba(skin_hex(color), sun)
         segs = list(reversed(ids.segbar.children))
         lit = round(score / 100 * len(segs))
         seg_color = hex_to_rgba(skin_hex(color), sun)
@@ -3442,36 +3775,37 @@ class Hua4GMonApp(App):
         box.add_widget(title)
         box.add_widget(Factory.GreenRule())
         # Etapa 6: en ventanas bajas (horizontal, 360 dp de alto) la
-        # hoja de 374 dp no cabe y el asa quedaba cortada arriba: la
-        # hoja se acorta y los ítems se compactan para que quepan los
-        # 5. En vertical no cambia nada (374 dp, ítems de 58 dp).
-        sheet_h = min(dp(374), Window.height - dp(16))
+        # hoja no cabe y el asa quedaba cortada arriba: la hoja se
+        # acorta y los ítems se compactan para que quepan los 3. En
+        # vertical no cambia nada (262 dp, ítems de 58 dp).
+        sheet_h = min(dp(262), Window.height - dp(16))
         popup = self._style_popup(Popup(title='', separator_height=0, content=box,
                                         size_hint=(1, None), height=sheet_h))
         # (icono, nombre, descripción, acción, peligro): los nombres ya no
         # llevan glifos de texto (D2/D5); el tema nombra la acción.
+        # Estilo A §4.5: solo Escáner, tema y Desconectar. Información
+        # y Red salen del menú porque ya están en la barra inferior;
+        # sus funciones NO se eliminan, se abren desde la barra.
+        # El tema lleva el icono del tema al que se cambia (sol en
+        # oscuro, luna en sol).
         items = [
-            ('info', t("Информация"),
-             t("Станция, SIM, устройство и состояние"),
-             lambda: self.go('info'), False),
             ('radar', t("Сканер наблюдений"),
              t("Beta · наблюдайте соты, поворачивая антенну"),
              self.open_survey, False),
-            ('gear', t("Сеть"), t("Бэнды, антенна и управление роутером"),
-             lambda: self.go('tools'), False),
-            ('sun', t("Вернуться к тёмной теме") if sun else t("Включить солнце"),
-             t("Тёмная тема: чёрный фон и зелёный акцент") if sun
+            ('moon' if sun else 'sun',
+             t("Вернуться к тёмной теме") if sun else t("Включить солнце"),
+             t("Тёмная тема: тёмно-синий фон и бирюзовый акцент") if sun
              else t("Светлая тема для чтения под прямым солнцем"),
              lambda: self.apply_theme('dark' if sun else 'sun'), False),
             ('power', t("Отключиться"), t("Закрыть сессию с роутером"),
              self.confirm_disconnect, True),
         ]
         item_h = dp(58)
-        if sheet_h < dp(374):
+        if sheet_h < dp(262):
             # Fijos de la hoja: padding 20 + asa 12 + título 36 +
-            # regla 2 + separaciones 14 = 84 dp, más 4 huecos de 2 dp
-            # entre los 5 ítems: el resto se reparte entre los ítems.
-            item_h = max(dp(40), (sheet_h - dp(92)) / 5)
+            # regla 2 + separaciones 14 = 84 dp, más 2 huecos de 2 dp
+            # entre los 3 ítems: el resto se reparte entre los ítems.
+            item_h = max(dp(40), (sheet_h - dp(88)) / 3)
         for icon, name, desc, action, danger in items:
             item = Factory.MenuItem()
             item.height = item_h
@@ -3499,7 +3833,7 @@ class Hua4GMonApp(App):
         msg = Label(text=message, halign='center', valign='middle', font_size=sp(FONT['body']))
         msg.bind(size=lambda i, v: setattr(i, 'text_size', v))
         content.add_widget(msg)
-        btns = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(10))
+        btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
         popup = self._style_popup(Popup(title=title, content=content,
                                         size_hint=(0.92, 0.55)))
         no = Factory.FlatButton(text=t("← Назад"), font_size=sp(FONT['value']), size_hint_x=1)
@@ -3525,7 +3859,7 @@ class Hua4GMonApp(App):
                     font_size=sp(FONT['body']))
         lbl.bind(width=lambda i, w: setattr(i, 'text_size', (w, None)),
                  texture_size=lambda i, ts: setattr(i, 'height', ts[1]))
-        sv = ScrollView(bar_color=self.c_sub,
+        sv = ScrollView(bar_width=0, bar_color=self.c_sub,
                         bar_inactive_color=[*self.c_sep[:3], 0.25])
         sv.add_widget(lbl)
         box.add_widget(sv)
@@ -3717,16 +4051,22 @@ class Hua4GMonApp(App):
             card.band = band
             card.name = f"B{band}"
             card.sub = self._band_card_sub(band)
+            card.observed = band in self.state.observed_bands
             cb = card.ids.cb
             # El estado visual de la tarjeta espeja la casilla.
             cb.bind(active=lambda _i, v, c=card: setattr(c, 'active', v))
+            # Estilo A §4.8: al cambiar una banda se revalúa Aplicar.
+            cb.bind(active=lambda *_a: self._sync_apply_buttons())
             cb.active = band in checked
             grid.add_widget(card)
             self.band_vars[band] = cb
         self._bands_shown = shown
+        self._sync_apply_buttons()
 
     def _band_card_sub(self, band: int) -> str:
-        """Subtítulo de la tarjeta de banda: frecuencia, TDD y si está en el aire."""
+        """Subtítulo de la tarjeta de banda: frecuencia y TDD, en una
+        línea. Si está en el aire se marca con el punto verde de la
+        tarjeta (el texto «en el aire» no cabía y se partía)."""
         freq = _band_freq_name(band)
         parts = []
         if freq:
@@ -3734,9 +4074,28 @@ class Hua4GMonApp(App):
         info = LTE_BAND_TABLE.get(band)
         if info and info[1] == 'TDD':
             parts.append('TDD')
-        if band in self.state.observed_bands:
-            parts.append(t("в эфире"))
         return " · ".join(parts)
+
+    def _sync_apply_buttons(self) -> None:
+        """«Aplicar» desactivado hasta que haya cambios (Estilo A §4.8).
+
+        Se compara la selección actual con lo leído del router
+        (_applied_bands/_applied_antenna). Si el estado aplicado aún
+        no se leyó, los botones quedan como antes (activos): sin
+        lectura no se sabe qué cambió.
+        """
+        tools = self._tools()
+        ids = tools.ids
+        current_bands = frozenset(
+            b for b, cb in self.band_vars.items() if cb.active)
+        btn = ids.get('apply_bands_btn')
+        if btn is not None:
+            btn.disabled = (self._applied_bands is not None
+                            and current_bands == self._applied_bands)
+        btn = ids.get('apply_antenna_btn')
+        if btn is not None:
+            btn.disabled = (self._applied_antenna is not None
+                            and tools.antenna_selected == self._applied_antenna)
 
     def _set_lock_state(self, kind: str, bands: str = "") -> None:
         """Línea «Ahora en el módem:» con el valor en negrita y acento.
@@ -3752,11 +4111,12 @@ class Hua4GMonApp(App):
                 *(int(v * 255) for v in self.c_sub[:3]))
             value = f"[color={gray}]{escape_markup(t('не прочитано'))}[/color]"
         elif kind == 'auto':
+            # Estilo A §4.7: el estado es «AUTO», sin aclaración.
             value = (f"[b][color={accent}]"
-                     f"{escape_markup(t('AUTO (все бэнды)'))}[/color][/b]")
+                     f"{escape_markup(t('AUTO'))}[/color][/b]")
         else:
             value = f"[b][color={accent}]{escape_markup(bands)}[/color][/b]"
-        tools.lock_state = f"{prefix} {value}"
+        tools.lock_state = f"{prefix}\n{value}"
 
     def build_antenna_seg(self) -> None:
         """Control segmentado de antena: un botón por modo.
@@ -3787,6 +4147,7 @@ class Hua4GMonApp(App):
     def _select_antenna(self, label: str) -> None:
         self._tools().antenna_selected = label
         self.build_antenna_seg()
+        self._sync_apply_buttons()
 
     def _run_bg(self, work: Callable[[], Any], done: Callable[[Any], None],
                 fail: Callable[[BaseException], None]) -> None:
@@ -3845,13 +4206,16 @@ class Hua4GMonApp(App):
             tools = self._tools()
             if cfg.locked is None:
                 self._set_lock_state('unread')
+                self._applied_bands = None
             elif not cfg.locked:
                 self._set_lock_state('auto')
+                self._applied_bands = frozenset()
                 for cb in self.band_vars.values():
                     cb.active = False
             else:
                 self._set_lock_state(
                     'locked', ", ".join(f"B{b}" for b in cfg.locked))
+                self._applied_bands = frozenset(cfg.locked)
                 extra = [b for b in cfg.locked if b not in self._band_list]
                 if extra:
                     self._band_list += extra
@@ -3863,7 +4227,11 @@ class Hua4GMonApp(App):
                     if code == cfg.antenna:
                         tools.antenna_text = t(label)
                         tools.antenna_selected = t(label)
+                        self._applied_antenna = t(label)
                         self.build_antenna_seg()
+            else:
+                self._applied_antenna = None
+            self._sync_apply_buttons()
 
         def failed(_exc: BaseException) -> None:
             if session is self.session:
@@ -3896,6 +4264,9 @@ class Hua4GMonApp(App):
             return
         names = ", ".join(f"B{b}" for b in selected)
         lines = [t("Зафиксировать бэнды: {bands}?").format(bands=names)]
+        # Estilo A §4.8: avisar en el diálogo de que sin señal en esa
+        # banda se pierde la conexión.
+        lines.append(t("Если в этом бэнде нет сигнала, связь пропадёт."))
         lines += lock_warnings(selected, self.state.last)
         def confirm_plan(plan):
             lines.append(t("Режим сети после записи: {mode}").format(mode=plan.networkmode))

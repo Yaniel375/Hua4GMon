@@ -202,33 +202,33 @@ def test_antenna_unknown():
 
 def test_band_single_label():
     # Без EARFCN — по полю band
-    assert core.format_band_label('7') == "B7 (2600 МГц)"
-    assert core.format_band_label('LTE BAND 20') == "B20 (800DD МГц)"
+    assert core.format_band_label('7') == "B7 (2600 МГц · FDD)"
+    assert core.format_band_label('LTE BAND 20') == "B20 (800 МГц · FDD)"
     assert core.format_band_label('B3') == "B3 (1800+ МГц)"
 
 
 def test_band_carrier_aggregation():
     # Без EARFCN строка с '+' разбирается как CA
-    assert core.format_band_label('7+20') == "CA: B7/2600 + B20/800DD"
+    assert core.format_band_label('7+20') == "CA: B7/2600 + B20/800"
     assert core.format_band_label('B3+B7') == "CA: B3/1800+ + B7/2600"
 
 
 def test_band_hex_bitmask():
-    assert core.format_band_label('0x40') == "B7 (2600 МГц)"
+    assert core.format_band_label('0x40') == "B7 (2600 МГц · FDD)"
     assert core.format_band_label('0x80044') == \
-           "CA: B3/1800+ + B7/2600 + B20/800DD"
+           "CA: B3/1800+ + B7/2600 + B20/800"
 
 
 def test_band_earfcn_priority():
     """EARFCN определяет primary-band; без поля band показывается один."""
-    assert core.format_band_label(None, 6300) == "B20 (800DD МГц)"
+    assert core.format_band_label(None, 6300) == "B20 (800 МГц · FDD)"
     assert core.format_band_label('', 1300) == "B3 (1800+ МГц)"
-    assert core.format_band_label('-', 3000) == "B7 (2600 МГц)"
+    assert core.format_band_label('-', 3000) == "B7 (2600 МГц · FDD)"
 
 
 def test_band_earfcn_string_format():
     """Роутер (B636) отдаёт EARFCN строкой 'DL:200 UL:18200' — берём DL."""
-    assert core.format_band_label('', 'DL:200 UL:18200') == "B1 (2100 МГц)"
+    assert core.format_band_label('', 'DL:200 UL:18200') == "B1 (2100 МГц · FDD)"
     assert core.format_band_label('', 'DL:1725 UL:19725') == "B3 (1800+ МГц)"
 
 

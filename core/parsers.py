@@ -209,14 +209,26 @@ def active_bands(band_raw: Any, earfcn: Any = None,
 
 
 def format_band_list(bands: Iterable[int]) -> str:
-    """Список номеров бэндов → 'B3 (1800+ МГц)' или 'CA: B3/1800+ + B1/2100'."""
+    """Список номеров бэндов → 'B3 (1800+ МГц)' или 'CA: B3/1800+ + B1/2100'.
+
+    Estilo A §4.1: una banda con frecuencia puramente numérica se
+    muestra con su dúplex — 'B20 (800 МГц · FDD)' en vez del viejo
+    'B20 (800DD МГц)'. Las frecuencias con sufijo ('1800+', 'TDD2600',
+    '700APT') ya lo llevan implícito y no cambian; la forma compacta
+    de CA tampoco ('B20/800').
+    """
     bands = list(dict.fromkeys(bands))   # дедуп с сохранением порядка
     if not bands:
         return "-"
     if len(bands) == 1:
         b = bands[0]
         freq = BAND_FREQ_MAP.get(b, '')
-        return f"B{b}" + (f" ({freq} МГц)" if freq else "")
+        if not freq:
+            return f"B{b}"
+        info = LTE_BAND_TABLE.get(b)
+        if freq.isdigit() and info:
+            return f"B{b} ({freq} МГц · {info[1]})"
+        return f"B{b} ({freq} МГц)"
     parts = []
     for b in bands:
         freq = BAND_FREQ_MAP.get(b, '')

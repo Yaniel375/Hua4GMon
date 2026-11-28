@@ -95,13 +95,15 @@ def test_monitor_shows_live_data(app):
     assert ids.banda_row.value != '—'
     assert ids.ancho_row.value != '—'
     assert ids.modo_row.value in ('FDD', 'TDD')
-    # Fila en vivo: en el demo dice DEMO.
-    assert ids.live_lbl.text == core.t(
-        "Тестовый режим · демонстрационные данные").upper()
+    # Fila en vivo: en el demo hay pastilla ámbar DEMO, sin punto verde.
+    assert ids.demo_pill.opacity == 1
+    assert ids.demo_pill.text == core.t("DEMO · демонстрационные данные")
+    assert ids.live_row.opacity == 0
+    assert ids.live_dot.opacity == 0
     # Tarjetas de métricas y SALUD DE SEÑAL con valores reales.
     for param in ('sinr', 'rsrp', 'rsrq', 'rssi'):
         card = ids[f'{param}_card']
-        assert card.m_value != '—'
+        assert card.m_num != '—'
         assert card.m_status.startswith('●')
         assert 0 < card.m_pct <= 100
         assert card.m_peak
@@ -251,7 +253,8 @@ def test_signal_metric_cards_use_range_position(app):
         card = ids[f'{param}_card']
         assert card.m_pct == pytest.approx((val - lo) / (hi - lo) * 100)
         assert card.m_status == f"● {core.t(label)}"
-        assert card.m_value == f"{val} {unit}"
+        assert card.m_num == str(val)
+        assert card.m_unit == unit
 
 
 def test_signal_ca_section_lists_real_carriers(app):
@@ -349,6 +352,48 @@ def test_band_lock_restore_and_antenna(app):
     assert modem.antenna == 1
 
 
+def test_apply_buttons_disabled_without_changes(app):
+    """Estilo A §4.8: «Aplicar» (bandas y antena) desactivado hasta
+    que haya cambios respecto a lo leído del router."""
+    ensure_online(app)
+    app.go('tools')
+    assert pump(lambda: "AUTO" in app._tools().lock_state)
+    tools = app._tools()
+    bands_btn = tools.ids.apply_bands_btn
+    antenna_btn = tools.ids.apply_antenna_btn
+    assert bands_btn.disabled
+    assert antenna_btn.disabled
+    # Cambiar una banda habilita solo su Aplicar.
+    for b, cb in app.band_vars.items():
+        cb.active = b == 20
+    assert not bands_btn.disabled
+    assert antenna_btn.disabled
+    for cb in app.band_vars.values():
+        cb.active = False
+    assert bands_btn.disabled
+    # Cambiar la antena habilita solo su Aplicar; volver, lo apaga.
+    labels = [core.t(k) for k in core.ANTENNA_MODES]
+    other = next(label for label in labels if label != app._applied_antenna)
+    app._select_antenna(other)
+    assert not antenna_btn.disabled
+    assert bands_btn.disabled
+    app._select_antenna(app._applied_antenna)
+    assert antenna_btn.disabled
+
+
+def test_threshold_zones_follow_signal_thresholds():
+    """Estilo A §3: las zonas de calidad siguen los umbrales del núcleo
+    de mejor a peor, sin solaparse ni cubrir todo el rango con un color."""
+    import android_main
+    zones = android_main._threshold_zones('sinr', -10, 30)
+    assert zones == [(20, 30, '#00b894'), (13, 20, '#2ecc71'),
+                     (0, 13, '#fdcb6e'), (-10, 0, '#d63031')]
+    zones = android_main._threshold_zones('rsrp', -120, -70)
+    assert zones == [(-80, -70, '#00b894'), (-90, -80, '#2ecc71'),
+                     (-100, -90, '#fdcb6e'), (-120, -100, '#d63031')]
+    assert android_main._threshold_zones('nope', 0, 10) == []
+
+
 def test_back_key_navigation(app):
     from kivy.core.window import Window
     ensure_online(app)
@@ -389,12 +434,11 @@ def test_sun_theme(app):
     assert app.c_bg == [1, 1, 1, 1]
     app.apply_theme('dark')
     assert app.c_bg[0] < 0.2
-    # Piel NetMonster: fondo casi negro y acento verde de marca.
-    # Los flotantes son int/255 exactos: el hex renderizado es #111411
-    # y #0CA663 (antes [0.07, 0.08, 0.07] y [0.05, 0.65, 0.39]
-    # se veían #111411 y #0CA563 por el truncado de Kivy).
-    assert app.c_bg == [17 / 255, 20 / 255, 17 / 255, 1]
-    assert app.c_accent == [12 / 255, 166 / 255, 99 / 255, 1]
+    # Estilo A: fondo azul noche y acento teal de marca.
+    # Los flotantes son int/255 exactos: el hex renderizado es #0B0F14
+    # y #2DD4BF.
+    assert app.c_bg == [11 / 255, 15 / 255, 20 / 255, 1]
+    assert app.c_accent == [45 / 255, 212 / 255, 191 / 255, 1]
 
 
 def test_palette_renders_exact_design_hex():
@@ -429,9 +473,9 @@ def test_theme_keys_applied(app):
     app.apply_theme('dark')
 
 
-def test_scrollbars_use_theme_colors(app):
-    """Etapa 3: ningún ScrollView usa el gris por defecto de Kivy
-    ([0.7, 0.7, 0.7, 0.9]); todos llevan c_sub / c_sep del tema."""
+def test_scrollbars_are_hidden(app):
+    """Rediseño premium: ningún ScrollView muestra barra lateral
+    (bar_width 0 en las 4 pantallas con scroll)."""
     from kivy.uix.scrollview import ScrollView
 
     for name in ('connection', 'monitor', 'info', 'tools'):
@@ -439,9 +483,7 @@ def test_scrollbars_use_theme_colors(app):
         found = [w for w in scr.walk() if isinstance(w, ScrollView)]
         assert found, name
         for sv in found:
-            assert list(sv.bar_color) == list(app.c_sub), name
-            assert list(sv.bar_inactive_color)[:3] == list(app.c_sep)[:3], name
-            assert sv.bar_inactive_color[3] == 0.25, name
+            assert sv.bar_width == 0, name
 
 
 def test_font_scale_single_source(app):
@@ -467,17 +509,20 @@ def test_font_scale_single_source(app):
 
 
 def test_themed_checkbox_uses_theme(app):
-    """Etapa 3: las casillas de bandas son BandCheckBox (sin el atlas
-    blanco por defecto de Kivy) y su estado sigue funcionando."""
+    """Rediseño premium: las casillas de bandas son BandCheckBox, ya no
+    un CheckBox: el canvas del CheckBox pintaba el fondo blanco del
+    atlas aunque las imágenes estuvieran vacías, y en el teléfono la
+    casilla se veía como un cuadrado blanco. Su estado sigue funcionando."""
     from kivy.factory import Factory
+    from kivy.uix.checkbox import CheckBox
 
     ensure_online(app)
     app.go('tools')
     assert pump(lambda: bool(app.band_vars), 5)
     for cb in app.band_vars.values():
         assert isinstance(cb, Factory.BandCheckBox)
-        assert cb.background_checkbox_normal == ''
-        assert cb.background_checkbox_down == ''
+        assert not isinstance(cb, CheckBox)
+        assert not hasattr(cb, 'background_checkbox_normal')
     first = next(iter(app.band_vars.values()))
     was = first.active
     first.active = not was
@@ -555,14 +600,14 @@ def test_beep_interval():
 
 
 def test_skin_signal_colors():
-    """La piel NetMonster traduce los colores de señal del núcleo."""
+    """Estilo A: la escala semántica traduce los colores de señal del núcleo."""
     import android_main
-    assert android_main.skin_hex('#00b894') == '#0CA663'
-    assert android_main.skin_hex('#2ecc71') == '#0CA663'
-    assert android_main.skin_hex('#fdcb6e') == '#EAB308'
-    assert android_main.skin_hex('#e68033') == '#EAB308'
+    assert android_main.skin_hex('#00b894') == '#22C55E'
+    assert android_main.skin_hex('#2ecc71') == '#84CC16'
+    assert android_main.skin_hex('#fdcb6e') == '#FACC15'
+    assert android_main.skin_hex('#e68033') == '#F97316'
     assert android_main.skin_hex('#d63031') == '#EF4444'
-    assert android_main.skin_hex('green') == '#0CA663'
+    assert android_main.skin_hex('green') == '#22C55E'
     assert android_main.skin_hex('#123456') == '#123456'
 
 
@@ -803,7 +848,7 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
     monitor = app.sm.get_screen('monitor')
     assert 'Нет регистрации' in monitor.ids.op_name_lbl.text
     assert monitor.ids.ci_row.value == '—'
-    assert monitor.ids.rsrp_card.m_value == '—'
+    assert monitor.ids.rsrp_card.m_num == '—'
     assert app.state.peaks['rsrp'] == peak
     assert 'Мотив' in app._survey_text.text
     copied = []
@@ -850,11 +895,14 @@ def test_metric_captions_fit_small_cards(app, size, language):
     core.set_language(language)
     card = Factory.MetricCard(size_hint=(None, None), size=size)
     card.m_name = 'RSRP'
-    card.m_value = '-119.5'
+    card.m_num = '-119.5'
+    card.m_unit = 'dBm'
     card.m_status = core.t('Нет данных')
     card.m_peak = core.t('Пик: {v} (Δ {d})').format(v='-109.5', d='-10.25')
     # La barra de calidad es un Widget sin texto: solo importan las etiquetas.
-    labels = [c for c in card.children if isinstance(c, Label)]
+    # El valor va en una fila (número + unidad), así que se recorre
+    # toda la tarjeta, no solo sus hijos directos.
+    labels = [w for w in card.walk() if isinstance(w, Label)]
     try:
         assert pump(lambda: all(label.text and label.texture_size[0] <= label.width + 1
                                and label.texture_size[1] <= label.height + 1
@@ -923,13 +971,13 @@ def test_original_mejorado_style_everywhere(app):
             label = next(c for c in head.children if isinstance(c, Label))
             assert list(label.color) == list(app.c_accent)
         assert any(isinstance(w, Factory.GreenRule) for w in screen.walk())
-    # Menú: hoja inferior con 5 ítems y separador verde en el popup.
+    # Menú: hoja inferior con 3 ítems (Estilo A §4.5) y separador verde.
     app.go('monitor')
     app.open_menu()
     popup = next(w for w in Window.children if isinstance(w, Popup))
     assert list(popup.separator_color) == list(app.c_accent)
     menu_items = [w for w in popup.walk() if isinstance(w, Factory.MenuItem)]
-    assert len(menu_items) == 5
+    assert len(menu_items) == 3
     popup.dismiss()
     # Confirmación: botón «No» plano y botón «Sí» de acción verde.
     type(app).confirm(app, "Título", "Mensaje", "Sí", lambda: None)
@@ -1007,7 +1055,7 @@ def test_confirm_dialog_buttons_have_touch_area(app):
         assert len(buttons) == 2
         for btn in buttons:
             assert btn.width > 100, (btn.text, btn.width)
-            assert btn.height == pytest.approx(dp(52))
+            assert btn.height == pytest.approx(dp(48))
             assert btn.x >= popup.x - 1 and btn.right <= popup.right + 1
         assert any(isinstance(b, Factory.PrimaryButton) for b in buttons)
         assert any(isinstance(b, Factory.FlatButton) for b in buttons)
@@ -1040,9 +1088,9 @@ def test_menu_items_fit_and_theme_label_is_action(app):
     pump(lambda: False, 0.4)
     popup = next(w for w in Window.children if isinstance(w, Popup))
     assert popup.y == pytest.approx(0)
-    assert popup.height == pytest.approx(dp(374))
+    assert popup.height == pytest.approx(dp(262))
     items = [w for w in popup.walk() if isinstance(w, Factory.MenuItem)]
-    assert len(items) == 5
+    assert len(items) == 3
     for item in items:
         col = next(w for w in item.children if type(w).__name__ == 'BoxLayout')
         for text, fsize, bold in (
