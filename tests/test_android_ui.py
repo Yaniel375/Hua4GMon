@@ -92,12 +92,21 @@ def test_monitor_shows_live_data(app):
     assert ids.tac_row.value == '12345'
     assert ids.pci_row.value == '287'
     assert ids.earfcn_row.value == '1300'
-    assert ids.rsrp_row.value != '—' and 'dBm' in ids.rsrp_row.value
-    # NIVEL DE SEÑAL y SALUD DE SEÑAL con valores reales.
-    assert ids.rsrp_q_lbl.text and ids.sinr_q_lbl.text
-    assert 0 < ids.rsrp_meter.pct <= 100
-    assert 0 < ids.sinr_meter.pct <= 100
-    assert ids.health_pct_lbl.text.endswith('%')
+    assert ids.banda_row.value != '—'
+    assert ids.ancho_row.value != '—'
+    assert ids.modo_row.value in ('FDD', 'TDD')
+    # Fila en vivo: en el demo dice DEMO.
+    assert ids.live_lbl.text == core.t(
+        "Тестовый режим · демонстрационные данные").upper()
+    # Tarjetas de métricas y SALUD DE SEÑAL con valores reales.
+    for param in ('sinr', 'rsrp', 'rsrq', 'rssi'):
+        card = ids[f'{param}_card']
+        assert card.m_value != '—'
+        assert card.m_status.startswith('●')
+        assert 0 < card.m_pct <= 100
+        assert card.m_peak
+    assert ids.health_ring.pct_text.endswith('%')
+    assert ids.health_ring.pct == int(ids.health_ring.pct_text.rstrip('%'))
     assert ids.health_lbl.text
     # El demo no entrega portadoras: la sección CA no se inventa.
     assert not scr.ca_visible
@@ -143,18 +152,17 @@ def test_signal_screen_has_no_spectrum(app):
     assert ids.ci_row.value == '46111500'
     assert ids.tac_row.value == '12345'
     assert scr.lbl_info_lte == 'ИНФОРМАЦИЯ LTE'
-    assert scr.lbl_signal_level == 'УРОВЕНЬ СИГНАЛА'
     assert scr.lbl_health == 'ЗДОРОВЬЕ СИГНАЛА'
     assert scr.lbl_ca == 'АГРЕГАЦИЯ НЕСУЩИХ'
 
 
-def test_signal_meter_bars_use_range_position(app):
-    """Cada barra de NIVEL DE SEÑAL marca la posición del valor en su
+def test_signal_metric_cards_use_range_position(app):
+    """Cada tarjeta de métrica marca la posición del valor en su
     rango, con la palabra de calidad existente (sin cambiar cálculos)."""
     from core.signal_analysis import evaluate_signal
     ensure_online(app)
     ids = app.sm.get_screen('monitor').ids
-    # Snapshot fijo: el demo cambia con el tiempo y la barra se dibuja
+    # Snapshot fijo: el demo cambia con el tiempo y la tarjeta se dibuja
     # con el valor del último render, no con el valor actual.
     snap = core.Snapshot(registration='registered', connection=901,
                          data_enabled=True, rsrp=-89, sinr=20, rsrq=-10,
@@ -162,12 +170,15 @@ def test_signal_meter_bars_use_range_position(app):
                          sector=12, tac='12345', operator='MegaFon',
                          plmn='25002', rat='lte', earfcn=1300, bands=(3,))
     app._render(snap)
-    for param, lo, hi, val in (('rsrp', -140.0, -44.0, -89),
-                               ('sinr', -20.0, 30.0, 20)):
+    for param, lo, hi, val, unit in (('rsrp', -140.0, -44.0, -89, 'dBm'),
+                                     ('sinr', -20.0, 30.0, 20, 'dB'),
+                                     ('rsrq', -30.0, -3.0, -10, 'dB'),
+                                     ('rssi', -110.0, -40.0, -60, 'dBm')):
         label, _color, _pct = evaluate_signal(param, val)
-        assert ids[f'{param}_meter'].pct == pytest.approx((val - lo) / (hi - lo) * 100)
-        assert ids[f'{param}_q_lbl'].text == core.t(label)
-        assert ids[f'{param}_meter_val'].text != '—'
+        card = ids[f'{param}_card']
+        assert card.m_pct == pytest.approx((val - lo) / (hi - lo) * 100)
+        assert card.m_status == f"● {core.t(label)}"
+        assert card.m_value == f"{val} {unit}"
 
 
 def test_signal_ca_section_lists_real_carriers(app):
@@ -213,7 +224,8 @@ def test_signal_health_segments_light_up(app):
     ids = app.sm.get_screen('monitor').ids
     segs = list(reversed(ids.segbar.children))
     assert len(segs) == 20
-    score = int(ids.health_pct_lbl.text.rstrip('%'))
+    score = ids.health_ring.pct
+    assert ids.health_ring.pct_text == f"{score}%"
     lit = sum(1 for seg in segs if seg.lit)
     assert lit == round(score / 100 * 20)
 
@@ -276,9 +288,14 @@ def test_info_screen_live(app):
     ensure_online(app)
     app.go('info')
     ids = app.sm.get_screen('info').ids
-    assert pump(lambda: "MegaFon" in ids.tower_block.text)
+
+    def rows_text(box):
+        return " ".join(w.row_value for w in box.children
+                        if hasattr(w, 'row_value'))
+
+    assert pump(lambda: "MegaFon" in rows_text(ids.tower_rows))
     assert "PCI" in ids.cells_block.text and "(25002)" in ids.cells_block.text
-    assert "B636" in ids.sim_block.text
+    assert "B636" in rows_text(ids.sim_rows)
     app.go('monitor')
 
 
@@ -377,13 +394,15 @@ def test_font_scale_single_source(app):
 
 
 def test_themed_checkbox_uses_theme(app):
-    """Etapa 3: las casillas de bandas son ThemedCheckBox (sin el atlas
+    """Etapa 3: las casillas de bandas son BandCheckBox (sin el atlas
     blanco por defecto de Kivy) y su estado sigue funcionando."""
+    from kivy.factory import Factory
+
     ensure_online(app)
     app.go('tools')
     assert pump(lambda: bool(app.band_vars), 5)
     for cb in app.band_vars.values():
-        assert type(cb).__name__ == 'ThemedCheckBox'
+        assert isinstance(cb, Factory.BandCheckBox)
         assert cb.background_checkbox_normal == ''
         assert cb.background_checkbox_down == ''
     first = next(iter(app.band_vars.values()))
@@ -445,7 +464,6 @@ def test_english_texts(app):
         scr = app.sm.get_screen('monitor')
         assert scr.lbl_menu == "☰ Menu"
         assert scr.lbl_info_lte == "LTE INFORMATION"
-        assert scr.lbl_signal_level == "SIGNAL LEVEL"
         assert scr.lbl_health == "SIGNAL HEALTH"
         assert scr.ids.op_sub_lbl.text == "OPERATOR · RU · DEMO"  # D6
     finally:
@@ -520,13 +538,19 @@ def test_new_session_clears_old_error_line(app):
 
 
 def test_band_labels_follow_theme(app):
+    from kivy.factory import Factory
+    from kivy.uix.label import Label
+
     ensure_online(app)
     app.go('tools')
     app.build_band_checkboxes()
     grid = app._tools().ids.bands_grid
     app.apply_theme('sun')
     try:
-        labels = [w for w in grid.children if hasattr(w, 'halign')]
+        cards = [w for w in grid.children if isinstance(w, Factory.BandCard)]
+        assert cards
+        labels = [w for card in cards for w in card.walk()
+                  if isinstance(w, Label) and w.text == card.name]
         assert labels and all(list(lb.color) == list(app.c_text) for lb in labels)
     finally:
         app.apply_theme('dark')
@@ -612,6 +636,7 @@ def test_new_session_has_no_demo_settings(app, monkeypatch):
     app._start_session(session)
     assert not any(cb.active for cb in app.band_vars.values())
     assert app._tools().antenna_text == core.t('Не прочитано')
+    assert app._tools().antenna_selected == ''
     assert app._tools().net_msg == ''
     assert app.state.last is None
     assert app.sm.get_screen('monitor').ids.ci_row.value == '—'
@@ -624,7 +649,7 @@ def test_signal_info_columns_equal_and_centered_actions(app):
     pump(lambda: False, 0.2)
     # Las dos columnas de INFORMACIÓN LTE tienen el mismo ancho.
     assert ids.ci_row.parent.width == pytest.approx(ids.earfcn_row.parent.width)
-    assert ids.rsrp_meter and ids.sinr_meter
+    assert ids.rsrp_card and ids.sinr_card and ids.rsrq_card and ids.rssi_card
     app.go('tools')
     assert pump(lambda: not app.sm.transition.is_active)
     from kivy.factory import Factory
@@ -704,7 +729,7 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
     monitor = app.sm.get_screen('monitor')
     assert 'Нет регистрации' in monitor.ids.op_name_lbl.text
     assert monitor.ids.ci_row.value == '—'
-    assert monitor.ids.rsrp_row.value == '—'
+    assert monitor.ids.rsrp_card.m_value == '—'
     assert app.state.peaks['rsrp'] == peak
     assert 'Мотив' in app._survey_text.text
     copied = []
@@ -800,14 +825,13 @@ def test_original_mejorado_style_everywhere(app):
             label = next(c for c in head.children if isinstance(c, Label))
             assert list(label.color) == list(app.c_accent)
         assert any(isinstance(w, Factory.GreenRule) for w in screen.walk())
-    # Menú: botones planos redondeados y separador verde en el popup.
+    # Menú: hoja inferior con 5 ítems y separador verde en el popup.
     app.go('monitor')
     app.open_menu()
     popup = next(w for w in Window.children if isinstance(w, Popup))
     assert list(popup.separator_color) == list(app.c_accent)
-    menu_buttons = [w for w in popup.walk() if isinstance(w, Button)]
-    assert len(menu_buttons) == 5
-    assert all(isinstance(b, Factory.FlatButton) for b in menu_buttons)
+    menu_items = [w for w in popup.walk() if isinstance(w, Factory.MenuItem)]
+    assert len(menu_items) == 5
     popup.dismiss()
     # Confirmación: botón «No» plano y botón «Sí» de acción verde.
     type(app).confirm(app, "Título", "Mensaje", "Sí", lambda: None)
@@ -900,23 +924,38 @@ def test_confirm_dialog_buttons_have_touch_area(app):
 
 
 def test_menu_items_fit_and_theme_label_is_action(app):
-    """D2: todos los ítems del Menú caben en su botón. D5: el ítem de
-    tema nombra la acción (cambiar/volver), no el estado."""
+    """D2: todos los ítems del Menú caben (nombre y descripción sin
+    cortar). D5: el ítem de tema nombra la acción (cambiar/volver),
+    no el estado. La hoja inferior queda abajo, no centrada."""
+    from kivy.core.text import Label as CoreLabel
     from kivy.core.window import Window
-    from kivy.uix.button import Button
+    from kivy.factory import Factory
+    from kivy.metrics import dp, sp
     from kivy.uix.popup import Popup
+
+    import android_main
 
     ensure_online(app)
     app.apply_theme('dark')
     app.open_menu()
     assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+    pump(lambda: False, 0.4)
     popup = next(w for w in Window.children if isinstance(w, Popup))
-    buttons = [w for w in popup.walk() if isinstance(w, Button)]
-    assert len(buttons) == 5
-    for btn in buttons:
-        assert btn.texture_size[0] <= btn.width, (
-            btn.text, btn.texture_size[0], btn.width)
-    assert any(b.text == core.t("☀ Включить солнце") for b in buttons)
+    assert popup.y == pytest.approx(0)
+    assert popup.height == pytest.approx(dp(374))
+    items = [w for w in popup.walk() if isinstance(w, Factory.MenuItem)]
+    assert len(items) == 5
+    for item in items:
+        col = next(w for w in item.children if type(w).__name__ == 'BoxLayout')
+        for text, fsize, bold in (
+                (item.name, android_main.FONT['body'], True),
+                (item.desc, android_main.FONT['small'], False)):
+            probe = CoreLabel(text=text, font_size=sp(fsize), bold=bold,
+                              font_name='Roboto')
+            probe.refresh()
+            assert probe.texture.width <= col.width, (item.name, text)
+    assert any(i.name == core.t("Включить солнце") for i in items)
+    assert any(i.danger and i.name == core.t("Отключиться") for i in items)
     popup.dismiss()
     pump(lambda: False, 0.2)
     app.apply_theme('sun')
@@ -924,8 +963,8 @@ def test_menu_items_fit_and_theme_label_is_action(app):
         app.open_menu()
         assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
         popup = next(w for w in Window.children if isinstance(w, Popup))
-        buttons = [w for w in popup.walk() if isinstance(w, Button)]
-        assert any(b.text == core.t("☀ Вернуться к тёмной теме") for b in buttons)
+        items = [w for w in popup.walk() if isinstance(w, Factory.MenuItem)]
+        assert any(i.name == core.t("Вернуться к тёмной теме") for i in items)
         popup.dismiss()
         pump(lambda: False, 0.2)
     finally:
@@ -933,11 +972,11 @@ def test_menu_items_fit_and_theme_label_is_action(app):
 
 
 def test_spinners_and_survey_text_use_theme(app):
-    """D3: los 3 Spinner usan la piel del tema (fondo, texto y opciones)
-    y el informe del escáner ya no es blanco con texto oscuro."""
+    """D3: el Spinner de idioma usa la piel del tema (fondo, texto y
+    opciones) y el informe del escáner ya no es blanco con texto
+    oscuro; la antena y el gráfico usan controles segmentados."""
     from kivy.core.window import Window
     from kivy.factory import Factory
-    from kivy.uix.dropdown import DropDown
     from kivy.uix.popup import Popup
     from kivy.uix.textinput import TextInput
 
@@ -947,22 +986,14 @@ def test_spinners_and_survey_text_use_theme(app):
     assert list(lang.background_color) == [0, 0, 0, 0]
     assert list(lang.color) == list(app.c_text)
     assert lang.option_cls in ('ThemedSpinnerOption', Factory.ThemedSpinnerOption)
-    graph = app.sm.get_screen('monitor').ids.graph_param
-    assert isinstance(graph, Factory.ThemedSpinner)
-    app.go('tools')
-    ant = app.sm.get_screen('tools').ids.antenna_spinner
-    assert isinstance(ant, Factory.ThemedSpinner)
-    assert list(ant.background_color) == [0, 0, 0, 0]
-    app.go('monitor')
-    graph.dispatch('on_release')
-    assert pump(lambda: any(isinstance(w, DropDown) for w in Window.children))
-    dd = next(w for w in Window.children if isinstance(w, DropDown))
-    options = list(dd.container.children)
-    assert options and all(isinstance(o, Factory.ThemedSpinnerOption)
-                           for o in options)
-    assert all(list(o.color) == list(app.c_text) for o in options)
-    dd.dismiss()
-    pump(lambda: False, 0.2)
+    assert 'graph_param' not in app.sm.get_screen('monitor').ids
+    assert 'antenna_spinner' not in app.sm.get_screen('tools').ids
+    graph_segs = [w for w in app.sm.get_screen('monitor').walk()
+                  if isinstance(w, Factory.SegButton)]
+    assert {s.param for s in graph_segs} >= {'sinr', 'rsrp', 'rsrq', 'rssi'}
+    ant_segs = [w for w in app.sm.get_screen('tools').walk()
+                if isinstance(w, Factory.SegButton)]
+    assert ant_segs and all(s.group == 'antenna' for s in ant_segs)
     app.open_survey()
     assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
     popup = next(w for w in Window.children if isinstance(w, Popup))
@@ -981,11 +1012,15 @@ def test_info_labels_translated_to_spanish(app):
         app.refresh_all_texts()
         app.refresh_info_screen()
         info = app.sm.get_screen('info')
-        assert "[b]ID de celda (ECI):[/b]" in info.ids.tower_block.text
-        assert "[b]5G NR:[/b]" in info.ids.tower_block.text
-        assert "[b]IMSI (SIM):[/b]" in info.ids.sim_block.text
-        assert "[b]MIMO:[/b]" in info.ids.status_block.text
-        assert "[b]RRC:[/b]" in info.ids.status_block.text
+
+        def row_keys(box):
+            return [w.row_key for w in box.children if hasattr(w, 'row_key')]
+
+        assert "ID de celda (ECI)" in row_keys(info.ids.tower_rows)
+        assert "5G NR" in row_keys(info.ids.tower_rows)
+        assert "IMSI (SIM)" in row_keys(info.ids.sim_rows)
+        assert "MIMO" in row_keys(info.ids.status_rows)
+        assert "RRC" in row_keys(info.ids.status_rows)
     finally:
         core.set_language("ru")
         app.refresh_all_texts()
@@ -1016,21 +1051,25 @@ def test_stale_data_warning_is_red_and_clears(app):
     assert list(ids.event_lbl.color) == list(app.c_sub)
 
 
-def test_health_percent_label_fits_100(app):
-    """D8: la etiqueta del porcentaje tiene ancho para «100%» con margen."""
-    from kivy.metrics import dp
+def test_health_percent_ring_fits_100(app):
+    """D8: el «100%» cabe dentro del anillo de salud (86 dp) con margen."""
+    from kivy.core.text import Label as CoreLabel
+    from kivy.metrics import dp, sp
 
     ensure_online(app)
-    lbl = app.sm.get_screen('monitor').ids.health_pct_lbl
-    assert lbl.width == pytest.approx(dp(112))
-    lbl.text = '100%'
-    assert pump(lambda: lbl.texture_size[0] <= lbl.width)
+    ring = app.sm.get_screen('monitor').ids.health_ring
+    assert ring.size[0] == pytest.approx(dp(86))
+    label = CoreLabel(text='100%', font_size=sp(21), bold=True,
+                      font_name='Roboto')
+    label.refresh()
+    assert label.texture.width <= ring.width
 
 
 def test_help_popup_shows_all_content(app):
-    """D10: el popup de Ayuda muestra todo el contenido sin cortar la
-    última línea."""
+    """D10: el popup de Ayuda mide todo el texto (sin cortar la última
+    línea) y tiene botón «← Atrás» fijo que lo cierra."""
     from kivy.core.window import Window
+    from kivy.factory import Factory
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
@@ -1041,7 +1080,11 @@ def test_help_popup_shows_all_content(app):
     popup = next(w for w in Window.children if isinstance(w, Popup))
     sv = next(w for w in popup.walk() if isinstance(w, ScrollView))
     lbl = next(w for w in sv.children[0].walk() if isinstance(w, Label))
-    assert pump(lambda: lbl.height <= sv.height, 5)
     assert lbl.text.endswith("без роутера.")
-    popup.dismiss()
+    assert lbl.height == pytest.approx(lbl.texture_size[1])
+    back = next(w for w in popup.walk()
+                if isinstance(w, Factory.FlatButton)
+                and w.text == core.t("← Назад"))
+    back.dispatch('on_release')
+    assert pump(lambda: not any(isinstance(w, Popup) for w in Window.children))
     pump(lambda: False, 0.2)
