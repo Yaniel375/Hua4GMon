@@ -156,27 +156,84 @@ _FONT_PATH = os.path.join(_ASSETS, 'DejaVuSans.ttf')
 # Жирное начертание — для крупных значений и заголовков (читаемость на солнце).
 _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 
-THEMES: dict[str, dict[str, list[float]]] = {
-    # Piel NetMonster (guía de estilo, solo visual): fondo casi negro,
-    # tarjetas apenas más claras y un solo verde de marca #0CA663.
+def _rgba(color: str, alpha: float = 1.0) -> list[float]:
+    """'#RRGGBB' → [r/255, g/255, b/255, alpha] con el hex EXACTO.
+
+    Kivy trunca int(v*255) al renderizar: el verde #0CA663 escrito como
+    [0.05, 0.65, 0.39] se veía #0CA563. Con int/255 el hex renderizado
+    es exactamente el de diseño.
+    """
+    h = color.lstrip('#')
+    return [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)] + [alpha]
+
+
+# Paleta NetMonster Pro (prompt §3): UN SOLO SITIO. Toda la interfaz
+# — pantallas, botones, spinners, popups, gráfico — toma sus colores
+# de aquí (vía THEMES / app.c_* / STATUS_HEX); no hay hex ni flotantes
+# sueltos fuera de este bloque, de SKIN_SIGNAL_COLORS ni de los
+# degradados que derivan de STATUS_HEX.
+PALETTE_HEX: dict[str, dict[str, str]] = {
+    # Piel NetMonster: fondo casi negro, tarjetas apenas más claras
+    # y un solo verde de marca #0CA663.
     'dark': {
-        'c_bg': [0.07, 0.08, 0.07, 1], 'c_card': [0.12, 0.12, 0.12, 1],
-        'c_text': [1, 1, 1, 1], 'c_sub': [0.6, 0.63, 0.65, 1],
-        'c_accent': [0.05, 0.65, 0.39, 1], 'c_button2': [0.12, 0.12, 0.12, 1],
-        'c_graph_bg': [0.09, 0.09, 0.09, 1], 'c_grid': [0.16, 0.18, 0.16, 1],
-        'c_btn_border': [0.23, 0.23, 0.23, 1],
-        'c_on_accent': [0.04, 0.12, 0.09, 1],
+        'c_bg': '#111411', 'c_card': '#1E1E1E', 'c_text': '#FFFFFF',
+        'c_sub': '#99A0A5', 'c_accent': '#0CA663', 'c_button2': '#1E1E1E',
+        'c_graph_bg': '#161616', 'c_grid': '#282D28',
+        'c_btn_border': '#3A3A3A', 'c_on_accent': '#0A1E16',
+        'c_sep': '#282D28', 'c_border': '#3A3A3A', 'c_nodata': '#808080',
+        'c_btn_down': '#333333', 'c_accent_down': '#0A7F4C',
+        'c_graph_line': '#0CA663', 'c_graph_nr': '#FFA633',
+        'c_peak': '#FFFFFF',
     },
-    # «Солнце»: максимальный контраст для экрана под прямым солнцем.
+    # «Солнце»: máximo contraste para la pantalla bajo el sol directo.
     'sun': {
-        'c_bg': [1, 1, 1, 1], 'c_card': [0.92, 0.93, 0.94, 1],
-        'c_text': [0, 0, 0, 1], 'c_sub': [0.2, 0.2, 0.2, 1],
-        'c_accent': [0.0, 0.3, 0.7, 1], 'c_button2': [0.8, 0.82, 0.85, 1],
-        'c_graph_bg': [1, 1, 1, 1], 'c_grid': [0.8, 0.8, 0.8, 1],
-        'c_btn_border': [0, 0, 0, 0],
-        'c_on_accent': [1, 1, 1, 1],
+        'c_bg': '#FFFFFF', 'c_card': '#EBEDEF', 'c_text': '#000000',
+        'c_sub': '#333333', 'c_accent': '#004CB2', 'c_button2': '#CCD1D8',
+        'c_graph_bg': '#FFFFFF', 'c_grid': '#CCCCCC',
+        'c_btn_border': '#000000', 'c_on_accent': '#FFFFFF',
+        'c_sep': '#CCCCCC', 'c_border': '#000000', 'c_nodata': '#808080',
+        'c_btn_down': '#B3B8BF', 'c_accent_down': '#003D8F',
+        'c_graph_line': '#0066A6', 'c_graph_nr': '#A64D00',
+        'c_peak': '#333333',
     },
 }
+
+THEMES: dict[str, dict[str, list[float]]] = {
+    name: {key: _rgba(value) for key, value in theme.items()}
+    for name, theme in PALETTE_HEX.items()
+}
+# En sol los bordes son transparentes (como antes): el hex no lleva alfa.
+THEMES['sun']['c_btn_border'] = _rgba('#000000', 0.0)
+THEMES['sun']['c_border'] = _rgba('#000000', 0.0)
+
+
+# Colores de estado (misma paleta: un verde, un ámbar, un rojo, un azul
+# y un gris — sin valores sueltos). Se pasan por skin_hex/hex_to_rgba,
+# que en tema sol los oscurecen para un contraste ≥ 4,5:1.
+STATUS_HEX: dict[str, str] = {
+    'good': '#0CA663', 'warn': '#EAB308', 'error': '#EF4444',
+    'info': '#3399FF', 'nodata': '#808080',
+}
+
+
+def _hex_rgb(color: str) -> tuple[int, int, int]:
+    """'#RRGGBB' → (r, g, b) en 0-255 (para la textura del degradado)."""
+    h = color.lstrip('#')
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+# Escala tipográfica única (sp): un solo sitio, roles con nombre.
+# Los valores sueltos por pantalla se normalizaron a estos roles
+# (10→10,5; 11→11,5; 12,5→13; 14/14,5→15; 15,5→16; 19→18).
+FONT: dict[str, float] = {
+    'display': 38, 'operator': 30, 'title': 22, 'hero': 34,
+    'big': 18, 'menu': 17, 'value': 16, 'body': 15, 'hint': 13,
+    'label': 12, 'small': 11.5, 'tiny': 10.5,
+}
+
+
+# Radios del sistema (dp): botones 10, tarjetas 12, chips 6.
+RADIUS: dict[str, int] = {'card': 12, 'button': 10, 'chip': 6}
 
 
 def unit_of(param: str) -> str:
@@ -195,16 +252,22 @@ def fmt_num(value: float | None) -> str:
 # traducen a la paleta de la piel. La lógica y los umbrales no cambian;
 # solo el color que se muestra. Lo no listado pasa tal cual.
 SKIN_SIGNAL_COLORS: dict[str, str] = {
-    '#00b894': '#0CA663', '#2ecc71': '#0CA663', '#33cc66': '#0CA663',
-    'green': '#0CA663',
-    '#fdcb6e': '#EAB308', '#e68033': '#EAB308', 'orange': '#EAB308',
-    '#d63031': '#EF4444', '#d93333': '#EF4444', 'red': '#EF4444',
+    '#00b894': STATUS_HEX['good'], '#2ecc71': STATUS_HEX['good'], '#33cc66': STATUS_HEX['good'],
+    'green': STATUS_HEX['good'],
+    '#fdcb6e': STATUS_HEX['warn'], '#e68033': STATUS_HEX['warn'], 'orange': STATUS_HEX['warn'],
+    '#d63031': STATUS_HEX['error'], '#d93333': STATUS_HEX['error'], 'red': STATUS_HEX['error'],
 }
 
 
 def skin_hex(color: str) -> str:
     """Color de señal del núcleo → color de la piel NetMonster."""
     return SKIN_SIGNAL_COLORS.get(color, SKIN_SIGNAL_COLORS.get(color.lower(), color))
+
+
+def _theme_rgba(theme: dict[str, list[float]], key: str) -> tuple[float, float, float, float]:
+    """Color del tema como tupla RGBA de 4 (para Color/*args de Kivy)."""
+    v = theme[key]
+    return (v[0], v[1], v[2], v[3])
 
 
 def hex_to_rgba(color: str, sun: bool = False) -> list[float]:
@@ -280,8 +343,11 @@ def _meter_gradient_texture() -> Any:
     recorta la parte visible, como en la vista previa.
     """
     from kivy.graphics.texture import Texture
-    stops = [(0.0, (0xEF, 0x44, 0x44)), (0.38, (0xEA, 0xB3, 0x08)),
-             (0.62, (0x0C, 0xA6, 0x63)), (1.0, (0x0C, 0xA6, 0x63))]
+    # Paradas del degradado = colores de señal de la paleta (no literales).
+    stops = [(0.0, _hex_rgb(STATUS_HEX['error'])),
+             (0.38, _hex_rgb(STATUS_HEX['warn'])),
+             (0.62, _hex_rgb(STATUS_HEX['good'])),
+             (1.0, _hex_rgb(STATUS_HEX['good']))]
     buf = bytearray()
     for x in range(256):
         frac = x / 255.0
@@ -378,7 +444,7 @@ class ToneBeeper:
 class CardLabel(Label):
     """Fit the complete caption inside its share of a metric card."""
     caption = StringProperty('')
-    base_size = NumericProperty(sp(14))
+    base_size = NumericProperty(sp(FONT['body']))
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -524,12 +590,12 @@ class SignalGraph(Widget):
                 gy = y0 + plot_h * i / 4
                 Color(*theme['c_grid'])
                 Line(points=[x0, gy, x0 + plot_w, gy], width=1)
-                tex = self._texture(f"{y_min + rng * i / 4:.0f}", sp(11), text_col)
+                tex = self._texture(f"{y_min + rng * i / 4:.0f}", sp(FONT['small']), text_col)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(x0 - tex.width - dp(4), gy - tex.height / 2),
                           size=tex.size)
             title = PARAM_TITLES.get(self._param, self._param.upper())
-            tex = self._texture(f"{title} ({unit_of(self._param)})", sp(13),
+            tex = self._texture(f"{title} ({unit_of(self._param)})", sp(FONT['hint']),
                                 tuple(theme['c_text']), True)
             Color(1, 1, 1, 1)
             Rectangle(texture=tex, pos=(x0, self.y + h - dp(19)), size=tex.size)
@@ -540,19 +606,15 @@ class SignalGraph(Widget):
                     a=latest - start, b=latest - end)
             else:
                 time_label = t("Последние {s:.0f} с").format(s=end - start)
-            tex = self._texture(time_label, sp(10), text_col)
+            tex = self._texture(time_label, sp(FONT['tiny']), text_col)
             Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2, self.y + dp(3)),
                       size=tex.size)
 
-            sun = app is not None and app.theme_name == 'sun'
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                if sun:
-                    Color(0.2, 0.2, 0.2, 1)
-                else:
-                    # Piel NetMonster: el pico se marca con una línea
-                    # blanca punteada, como el umbral de sus gráficos.
-                    Color(1, 1, 1, 1)
+                # El pico se marca con una línea punteada, como el umbral
+                # de los gráficos NetMonster.
+                Color(*theme['c_peak'])
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
             paired = self.viewport.has_comparison
@@ -560,12 +622,11 @@ class SignalGraph(Widget):
                 param = comparison_param(self._param) if comparison else self._param
                 is_nr = param.startswith('nr_')
                 if self._stale:
-                    line_col = (0.6, 0.6, 0.6, 1)
+                    line_col = _theme_rgba(theme, 'c_nodata')
                 elif is_nr:
-                    line_col = (0.65, 0.30, 0.0, 1) if sun else (1.0, 0.65, 0.2, 1)
+                    line_col = _theme_rgba(theme, 'c_graph_nr')
                 else:
-                    # Piel NetMonster: la línea principal va en verde de marca.
-                    line_col = (0.0, 0.40, 0.65, 1) if sun else (0.05, 0.65, 0.39, 1)
+                    line_col = _theme_rgba(theme, 'c_graph_line')
                 Color(*line_col)
                 segs = list(self.viewport.segments(comparison))
                 if not comparison and not self._stale and segs:
@@ -581,13 +642,13 @@ class SignalGraph(Widget):
                     Ellipse(pos=(lx - r, ly - r), size=(2 * r, 2 * r))
                 name = radio_label(param) if comparison_param(param) else PARAM_TITLES.get(param, param)
                 label = f"{name}: {fmt_num(self.viewport.latest_value(comparison))} {unit_of(param)}"
-                tex = self._texture(label, sp(11), line_col, True)
+                tex = self._texture(label, sp(FONT['small']), line_col, True)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex,
                           pos=(x0 + (plot_w / 2 if comparison else 0), self.y + h - dp(38)),
                           size=tex.size)
             if self._stale:
-                tex = self._texture(t("нет свежих данных"), sp(13), text_col, True)
+                tex = self._texture(t("нет свежих данных"), sp(FONT['hint']), text_col, True)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2,
                                            y0 + plot_h / 2), size=tex.size)
@@ -691,6 +752,8 @@ class RotatedBox(Widget):
 KV = """
 #:import dp kivy.metrics.dp
 #:import sp kivy.metrics.sp
+#:import FONT android_main.FONT
+#:import RADIUS android_main.RADIUS
 
 # ¡No renombrar a ActionButton!: ese nombre ya lo registra Kivy
 # (kivy.uix.actionbar.ActionButton) y Kivy ignoraría esta regla,
@@ -705,35 +768,35 @@ KV = """
     background_down: ''
     background_color: 0, 0, 0, 0
     color: app.c_on_accent
-    font_size: sp(16)
+    font_size: sp(FONT['value'])
     size_hint_y: None
     height: dp(52)
     canvas.before:
         Color:
-            rgba: app.c_accent if self.state == 'normal' else (0.04, 0.5, 0.3, 1)
+            rgba: app.c_accent if self.state == 'normal' else app.c_accent_down
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(RADIUS['button'])]
 
 <FlatButton@Button>:
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
     color: app.c_text
-    font_size: sp(16)
+    font_size: sp(FONT['value'])
     canvas.before:
         Color:
-            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(RADIUS['button'])]
     canvas.after:
         Color:
-            rgba: app.c_btn_border
+            rgba: app.c_border
         Line:
-            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['button'])
             width: dp(1)
 
 # Spinner con la piel del tema (antes usaba el gris claro por defecto
@@ -747,10 +810,10 @@ KV = """
     background_down: ''
     background_color: 0, 0, 0, 0
     color: app.c_text
-    font_size: sp(15)
+    font_size: sp(FONT['body'])
     canvas.before:
         Color:
-            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
         Rectangle:
             pos: self.pos
             size: self.size
@@ -764,21 +827,48 @@ KV = """
     option_cls: 'ThemedSpinnerOption'
     canvas.before:
         Color:
-            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(RADIUS['button'])]
     canvas.after:
         Color:
-            rgba: app.c_btn_border
+            rgba: app.c_border
         Line:
-            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['button'])
             width: dp(1)
         Color:
             rgba: app.c_sub
         Triangle:
             points: [self.right - dp(24), self.center_y + dp(3), self.right - dp(14), self.center_y + dp(3), self.right - dp(19), self.center_y - dp(4)]
+
+# CheckBox con la piel del tema (el atlas por defecto de Kivy es una
+# caja blanca que rompía con la interfaz oscura): borde redondeado del
+# tema, relleno verde al activar y marca blanca. Las imágenes del atlas
+# se vacían para que el BorderImage por defecto no dibuje nada.
+<ThemedCheckBox@CheckBox>:
+    background_checkbox_normal: ''
+    background_checkbox_down: ''
+    background_checkbox_disabled_normal: ''
+    background_checkbox_disabled_down: ''
+    canvas.after:
+        Color:
+            rgba: app.c_accent if self.active else app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(1.5), self.y + dp(1.5), self.width - dp(3), self.height - dp(3), dp(RADIUS['chip'])
+            width: dp(1.5)
+        Color:
+            rgba: app.c_accent if self.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x + dp(5), self.y + dp(5)
+            size: self.width - dp(10), self.height - dp(10)
+            radius: [dp(4)]
+        Color:
+            rgba: app.c_on_accent if self.active else (0, 0, 0, 0)
+        Line:
+            points: [self.x + dp(11), self.center_y + dp(1), self.center_x - dp(1), self.y + dp(11), self.right - dp(10), self.top - dp(10)]
+            width: dp(2)
 
 # Original mejorado: línea fina verde tenue (separador de sección) y
 # línea verde sólida de 2 dp (bajo el encabezado, como en la vista previa).
@@ -812,7 +902,7 @@ KV = """
     spacing: dp(10)
     Label:
         text: root.text
-        font_size: sp(13)
+        font_size: sp(FONT['hint'])
         bold: True
         color: app.c_accent
         size_hint_x: None
@@ -834,10 +924,10 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(12)]
+            radius: [dp(RADIUS['card'])]
 
 <AutoLabel@Label>:
-    font_size: sp(15)
+    font_size: sp(FONT['body'])
     color: app.c_text
     size_hint_y: None
     height: self.texture_size[1] + dp(6)
@@ -846,14 +936,17 @@ KV = """
     valign: 'top'
 
 <HintLabel@AutoLabel>:
-    font_size: sp(13)
+    font_size: sp(FONT['hint'])
     color: app.c_sub
 
 <InfoLabel@AutoLabel>:
-    font_size: sp(16)
+    font_size: sp(FONT['value'])
     line_height: 1.3
     markup: True
 
+# m_color por defecto es el gris "sin datos" = c_nodata (#808080).
+# No se puede poner app.c_nodata aquí: al construir el widget el
+# binding aún no se evaluó y m_color llega None al canvas.
 <MetricCard@BoxLayout>:
     orientation: 'vertical'
     m_name: ''
@@ -862,7 +955,7 @@ KV = """
     m_peak: ''
     m_color: 0.5, 0.5, 0.5, 1
     m_pct: 0
-    value_size: sp(34)
+    value_size: sp(FONT['hero'])
     padding: dp(6)
     spacing: dp(1)
     canvas.before:
@@ -871,16 +964,16 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(RADIUS['card'])]
     canvas.after:
         Color:
-            rgba: app.c_btn_border
+            rgba: app.c_border
         Line:
-            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
             width: dp(1)
     CardLabel:
         caption: root.m_name
-        base_size: sp(14)
+        base_size: sp(FONT['body'])
         color: app.c_sub
         size_hint_y: 0.15
     CardLabel:
@@ -894,7 +987,7 @@ KV = """
         height: dp(5)
         canvas.before:
             Color:
-                rgba: 0.55, 0.55, 0.55, 0.3
+                rgba: app.c_sep
             Rectangle:
                 pos: self.pos
                 size: self.size
@@ -905,13 +998,13 @@ KV = """
                 size: self.width * root.m_pct / 100, self.height
     CardLabel:
         caption: root.m_status
-        base_size: sp(13)
+        base_size: sp(FONT['hint'])
         color: root.m_color
         size_hint_y: 0.15
     CardLabel:
         id: peak_label
         caption: root.m_peak
-        base_size: sp(13)
+        base_size: sp(FONT['hint'])
         color: app.c_sub
         halign: 'center'
         size_hint_y: 0.25
@@ -928,14 +1021,14 @@ KV = """
     spacing: dp(8)
     canvas.after:
         Color:
-            rgba: app.c_grid
+            rgba: app.c_sep
         Rectangle:
             pos: self.pos
             size: self.width, dp(1)
 
     Label:
         text: root.key
-        font_size: sp(11.5)
+        font_size: sp(FONT['small'])
         bold: True
         color: app.c_sub
         size_hint_x: None
@@ -945,7 +1038,7 @@ KV = """
         valign: 'middle'
     Label:
         text: root.value
-        font_size: sp(15.5)
+        font_size: sp(FONT['value'])
         color: app.c_text
         markup: True
         text_size: self.size
@@ -960,7 +1053,7 @@ KV = """
     height: dp(8)
     canvas:
         Color:
-            rgba: app.c_grid
+            rgba: app.c_sep
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -979,7 +1072,7 @@ KV = """
     lit_color: 0, 0, 0, 1
     canvas:
         Color:
-            rgba: self.lit_color if self.lit else app.c_grid
+            rgba: self.lit_color if self.lit else app.c_sep
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -998,7 +1091,7 @@ KV = """
     spacing: dp(10)
     Label:
         text: root.tag
-        font_size: sp(11)
+        font_size: sp(FONT['small'])
         bold: True
         color: app.c_accent if root.tag == 'PCC' else app.c_sub
         size_hint_x: None
@@ -1012,12 +1105,12 @@ KV = """
             RoundedRectangle:
                 pos: self.pos
                 size: self.size
-                radius: [dp(6)]
+                radius: [dp(RADIUS['chip'])]
     BoxLayout:
         orientation: 'vertical'
         Label:
             text: root.band
-            font_size: sp(14.5)
+            font_size: sp(FONT['body'])
             bold: True
             color: app.c_text
             size_hint_y: 0.55
@@ -1026,7 +1119,7 @@ KV = """
             valign: 'middle'
         Label:
             text: root.earfcn
-            font_size: sp(11.5)
+            font_size: sp(FONT['small'])
             color: app.c_sub
             size_hint_y: 0.45
             text_size: self.size
@@ -1038,7 +1131,7 @@ KV = """
         width: dp(96)
         Label:
             text: root.bw
-            font_size: sp(14.5)
+            font_size: sp(FONT['body'])
             color: app.c_text
             size_hint_y: 0.55
             text_size: self.size
@@ -1046,7 +1139,7 @@ KV = """
             valign: 'middle'
         Label:
             text: root.bw_label
-            font_size: sp(11.5)
+            font_size: sp(FONT['small'])
             color: app.c_sub
             size_hint_y: 0.45
             text_size: self.size
@@ -1066,7 +1159,7 @@ KV = """
         on_release: app.go('monitor')
     Label:
         text: root.title
-        font_size: sp(22)
+        font_size: sp(FONT['title'])
         bold: True
         color: app.c_text
 
@@ -1086,6 +1179,8 @@ ScreenManager:
             size: self.size
     ScrollView:
         bar_width: dp(8)
+        bar_color: app.c_sub
+        bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
         scroll_type: ['bars', 'content']
         BoxLayout:
             orientation: 'vertical'
@@ -1095,14 +1190,14 @@ ScreenManager:
             spacing: dp(12)
             Label:
                 text: 'Hua4GMon'
-                font_size: sp(38)
+                font_size: sp(FONT['display'])
                 bold: True
                 color: app.c_text
                 size_hint_y: None
                 height: dp(64)
             Label:
                 text: root.subtitle
-                font_size: sp(15)
+                font_size: sp(FONT['body'])
                 color: app.c_sub
                 size_hint_y: None
                 height: dp(26)
@@ -1112,7 +1207,7 @@ ScreenManager:
                     text: root.lbl_conn_title
                 AutoLabel:
                     text: root.lbl_ip
-                    font_size: sp(12)
+                    font_size: sp(FONT['label'])
                     bold: True
                     color: app.c_sub
                 BoxLayout:
@@ -1123,25 +1218,25 @@ ScreenManager:
                         id: ip_input
                         text: '192.168.8.1'
                         multiline: False
-                        font_size: sp(18)
+                        font_size: sp(FONT['big'])
                         background_color: app.c_card
                         foreground_color: app.c_text
                         cursor_color: app.c_accent
                     FlatButton:
                         text: root.lbl_find
                         size_hint_x: 0.45
-                        font_size: sp(15)
+                        font_size: sp(FONT['body'])
                         on_release: root.on_find()
                 AutoLabel:
                     text: root.lbl_pw
-                    font_size: sp(12)
+                    font_size: sp(FONT['label'])
                     bold: True
                     color: app.c_sub
                 TextInput:
                     id: pw_input
                     password: True
                     multiline: False
-                    font_size: sp(18)
+                    font_size: sp(FONT['big'])
                     size_hint_y: None
                     height: dp(50)
                     background_color: app.c_card
@@ -1154,7 +1249,7 @@ ScreenManager:
             AutoLabel:
                 id: status_lbl
                 text: ''
-                font_size: sp(15)
+                font_size: sp(FONT['body'])
                 color: root.status_color
                 halign: 'center'
             FlatButton:
@@ -1174,14 +1269,14 @@ ScreenManager:
                 Label:
                     text: root.lbl_lang
                     color: app.c_sub
-                    font_size: sp(14)
+                    font_size: sp(FONT['body'])
                     size_hint_x: None
                     width: dp(80)
                 ThemedSpinner:
                     id: lang_spinner
                     text: root.lang_name
                     values: root.lang_values
-                    font_size: sp(14)
+                    font_size: sp(FONT['body'])
                     on_text: root.on_language(self.text)
 
 <MonitorScreen>:
@@ -1206,7 +1301,7 @@ ScreenManager:
                 Label:
                     id: op_name_lbl
                     text: '—'
-                    font_size: sp(30)
+                    font_size: sp(FONT['operator'])
                     bold: True
                     color: app.c_text
                     shorten: True
@@ -1218,7 +1313,7 @@ ScreenManager:
                 Label:
                     id: op_sub_lbl
                     text: ''
-                    font_size: sp(12)
+                    font_size: sp(FONT['label'])
                     bold: True
                     color: app.c_sub
                     size_hint_y: 0.38
@@ -1232,7 +1327,7 @@ ScreenManager:
                 Label:
                     id: plmn_lbl
                     text: ''
-                    font_size: sp(19)
+                    font_size: sp(FONT['big'])
                     bold: True
                     color: app.c_text
                     size_hint_y: 0.55
@@ -1245,7 +1340,7 @@ ScreenManager:
                     Label:
                         id: tech_chip_lbl
                         text: ''
-                        font_size: sp(12)
+                        font_size: sp(FONT['label'])
                         bold: True
                         color: app.c_on_accent
                         size_hint: None, None
@@ -1260,7 +1355,7 @@ ScreenManager:
                             RoundedRectangle:
                                 pos: self.pos
                                 size: self.size
-                                radius: [dp(6)]
+                                radius: [dp(RADIUS['chip'])]
         GreenRule:
         # Línea de ancla (solo si el router da bandas).
         BoxLayout:
@@ -1271,7 +1366,7 @@ ScreenManager:
             Label:
                 id: anchor_lbl
                 text: ''
-                font_size: sp(14)
+                font_size: sp(FONT['body'])
                 bold: True
                 color: app.c_text
                 markup: True
@@ -1280,6 +1375,8 @@ ScreenManager:
                 valign: 'middle'
         ScrollView:
             bar_width: dp(8)
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
             BoxLayout:
                 orientation: 'vertical'
@@ -1335,7 +1432,7 @@ ScreenManager:
                         height: dp(22)
                         Label:
                             text: 'RSRP'
-                            font_size: sp(11.5)
+                            font_size: sp(FONT['small'])
                             bold: True
                             color: app.c_sub
                             size_hint_x: 0.3
@@ -1347,7 +1444,7 @@ ScreenManager:
                             spacing: dp(6)
                             Label:
                                 text: '●'
-                                font_size: sp(11)
+                                font_size: sp(FONT['small'])
                                 color: root.q_rsrp_color
                                 size_hint_x: None
                                 width: dp(12)
@@ -1357,7 +1454,7 @@ ScreenManager:
                             Label:
                                 id: rsrp_q_lbl
                                 text: ''
-                                font_size: sp(12)
+                                font_size: sp(FONT['label'])
                                 bold: True
                                 color: app.c_sub
                                 text_size: self.size
@@ -1366,7 +1463,7 @@ ScreenManager:
                         Label:
                             id: rsrp_meter_val
                             text: ''
-                            font_size: sp(16)
+                            font_size: sp(FONT['value'])
                             bold: True
                             color: app.c_text
                             markup: True
@@ -1381,7 +1478,7 @@ ScreenManager:
                         height: dp(15)
                         Label:
                             text: '-140'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1389,7 +1486,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '-110'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1397,7 +1494,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '-80'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1405,7 +1502,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '-44'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1421,7 +1518,7 @@ ScreenManager:
                         height: dp(22)
                         Label:
                             text: 'SINR'
-                            font_size: sp(11.5)
+                            font_size: sp(FONT['small'])
                             bold: True
                             color: app.c_sub
                             size_hint_x: 0.3
@@ -1433,7 +1530,7 @@ ScreenManager:
                             spacing: dp(6)
                             Label:
                                 text: '●'
-                                font_size: sp(11)
+                                font_size: sp(FONT['small'])
                                 color: root.q_sinr_color
                                 size_hint_x: None
                                 width: dp(12)
@@ -1443,7 +1540,7 @@ ScreenManager:
                             Label:
                                 id: sinr_q_lbl
                                 text: ''
-                                font_size: sp(12)
+                                font_size: sp(FONT['label'])
                                 bold: True
                                 color: app.c_sub
                                 text_size: self.size
@@ -1452,7 +1549,7 @@ ScreenManager:
                         Label:
                             id: sinr_meter_val
                             text: ''
-                            font_size: sp(16)
+                            font_size: sp(FONT['value'])
                             bold: True
                             color: app.c_text
                             markup: True
@@ -1467,7 +1564,7 @@ ScreenManager:
                         height: dp(15)
                         Label:
                             text: '-20'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1475,7 +1572,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '0'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1483,7 +1580,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '15'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1491,7 +1588,7 @@ ScreenManager:
                             valign: 'middle'
                         Label:
                             text: '30'
-                            font_size: sp(10.5)
+                            font_size: sp(FONT['tiny'])
                             color: app.c_sub
                             size_hint_x: 0.25
                             text_size: self.size
@@ -1506,7 +1603,7 @@ ScreenManager:
                     Label:
                         id: health_pct_lbl
                         text: '0%'
-                        font_size: sp(34)
+                        font_size: sp(FONT['hero'])
                         bold: True
                         color: app.c_text
                         size_hint_x: None
@@ -1522,7 +1619,7 @@ ScreenManager:
                         Label:
                             id: health_lbl
                             text: ''
-                            font_size: sp(12.5)
+                            font_size: sp(FONT['hint'])
                             bold: True
                             color: app.c_sub
                             size_hint_y: None
@@ -1576,12 +1673,12 @@ ScreenManager:
                             RoundedRectangle:
                                 pos: self.pos
                                 size: self.size
-                                radius: [dp(14)]
+                                radius: [dp(RADIUS['card'])]
                         canvas.after:
                             Color:
                                 rgba: app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.35
                             Line:
-                                rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(14)
+                                rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
                                 width: dp(1)
                         BoxLayout:
                             id: ca_rows
@@ -1595,7 +1692,7 @@ ScreenManager:
                             Label:
                                 id: ca_count_lbl
                                 text: ''
-                                font_size: sp(13)
+                                font_size: sp(FONT['hint'])
                                 color: app.c_sub
                                 text_size: self.size
                                 halign: 'left'
@@ -1603,7 +1700,7 @@ ScreenManager:
                             Label:
                                 id: ca_total_lbl
                                 text: ''
-                                font_size: sp(13)
+                                font_size: sp(FONT['hint'])
                                 color: app.c_sub
                                 markup: True
                                 text_size: self.size
@@ -1618,12 +1715,12 @@ ScreenManager:
                         text: 'sinr'
                         values: root.graph_values
                         size_hint_x: 0.5
-                        font_size: sp(14)
+                        font_size: sp(FONT['body'])
                         on_text: app.set_graph_param(self.text)
                     FlatButton:
                         text: root.lbl_fullscreen
                         size_hint_x: 0.5
-                        font_size: sp(14)
+                        font_size: sp(FONT['body'])
                         on_release: app.open_fullscreen_graph()
                 SignalGraph:
                     id: signal_graph
@@ -1632,7 +1729,7 @@ ScreenManager:
                 Label:
                     id: event_lbl
                     text: ''
-                    font_size: sp(13)
+                    font_size: sp(FONT['hint'])
                     color: app.c_sub
                     size_hint_y: None
                     height: self.texture_size[1] if self.text else 0
@@ -1641,7 +1738,7 @@ ScreenManager:
                 Label:
                     id: advice_lbl
                     text: ''
-                    font_size: sp(13)
+                    font_size: sp(FONT['hint'])
                     color: root.advice_color
                     size_hint_y: None
                     height: self.texture_size[1] if self.text else 0
@@ -1674,6 +1771,8 @@ ScreenManager:
         ScrollView:
             id: content_scroll
             bar_width: dp(8)
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
             BoxLayout:
                 orientation: 'vertical'
@@ -1722,6 +1821,8 @@ ScreenManager:
         ScrollView:
             id: content_scroll
             bar_width: dp(8)
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
             BoxLayout:
                 orientation: 'vertical'
@@ -1773,7 +1874,7 @@ ScreenManager:
                         id: antenna_spinner
                         text: root.antenna_text
                         values: root.antenna_values
-                        font_size: sp(16)
+                        font_size: sp(FONT['value'])
                         size_hint_y: None
                         height: dp(48)
                     PrimaryButton:
@@ -1809,12 +1910,12 @@ ScreenManager:
                         on_release: app.whitelist_check()
                     AutoLabel:
                         text: root.wl_verdict
-                        font_size: sp(16)
+                        font_size: sp(FONT['value'])
                         bold: True
                         color: root.wl_color
                     AutoLabel:
                         text: root.wl_detail
-                        font_size: sp(13)
+                        font_size: sp(FONT['hint'])
 """
 
 
@@ -1834,7 +1935,7 @@ class ConnectionScreen(Screen):
     lbl_help = StringProperty("")
     lang_name = StringProperty("")
     lang_values = ListProperty([])
-    status_color = ListProperty([0.92, 0.71, 0.03, 1])
+    status_color = ListProperty(hex_to_rgba(STATUS_HEX['warn']))
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
@@ -1896,7 +1997,7 @@ class ConnectionScreen(Screen):
         ip = ip_input.text.strip()
         if not is_valid_ip(ip):
             self.set_status(t("Неверный IP-адрес: {ip}\nПример: 192.168.8.1").format(ip=ip),
-                            [0.9, 0.3, 0.3, 1])
+                            hex_to_rgba(STATUS_HEX['error']))
             return
         App.get_running_app().connect(ip, pw_input.text)
 
@@ -1910,10 +2011,10 @@ class MonitorScreen(Screen):
     lbl_health = StringProperty("")
     lbl_ca = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
-    status_color = ListProperty([0.05, 0.65, 0.39, 1])
-    advice_color = ListProperty([0.92, 0.71, 0.03, 1])
-    q_rsrp_color = ListProperty([0.5, 0.5, 0.5, 1])
-    q_sinr_color = ListProperty([0.5, 0.5, 0.5, 1])
+    status_color = ListProperty(hex_to_rgba(STATUS_HEX['good']))
+    advice_color = ListProperty(hex_to_rgba(STATUS_HEX['warn']))
+    q_rsrp_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
+    q_sinr_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
     anchor_visible = BooleanProperty(False)
     ca_visible = BooleanProperty(False)
 
@@ -1983,9 +2084,9 @@ class ToolsScreen(TopScrollScreen):
     lbl_wl_check = StringProperty("")
     wl_verdict = StringProperty("")
     wl_detail = StringProperty("")
-    wl_color = ListProperty([0.5, 0.5, 0.5, 1])
+    wl_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
     net_msg = StringProperty("")
-    net_msg_color = ListProperty([0.5, 0.5, 0.5, 1])
+    net_msg_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
@@ -2038,6 +2139,11 @@ class Hua4GMonApp(App):
     c_grid = ListProperty(THEMES['dark']['c_grid'])
     c_btn_border = ListProperty(THEMES['dark']['c_btn_border'])
     c_on_accent = ListProperty(THEMES['dark']['c_on_accent'])
+    c_sep = ListProperty(THEMES['dark']['c_sep'])
+    c_border = ListProperty(THEMES['dark']['c_border'])
+    c_nodata = ListProperty(THEMES['dark']['c_nodata'])
+    c_btn_down = ListProperty(THEMES['dark']['c_btn_down'])
+    c_accent_down = ListProperty(THEMES['dark']['c_accent_down'])
     meter_gradient = ObjectProperty(None)
     sound_on = BooleanProperty(False)
     lbl_back = StringProperty("")
@@ -2164,20 +2270,20 @@ class Hua4GMonApp(App):
             return
         self._discovering = True
         scr = self._conn_screen()
-        scr.set_status(t("Ищу роутер…"), [0.3, 0.6, 0.95, 1])
+        scr.set_status(t("Ищу роутер…"), hex_to_rgba(STATUS_HEX['info']))
         candidates = ([entered] if is_valid_ip(entered) else []) + list(DISCOVERY_CANDIDATES)
 
         def done(found: Any) -> None:
             self._discovering = False
             if found is None:
                 scr.set_status(t("Роутер не найден. Проверьте подключение к его Wi-Fi/USB."),
-                               [0.9, 0.3, 0.3, 1])
+                               hex_to_rgba(STATUS_HEX['error']))
                 return
             ip_input = scr.ids.get('ip_input')
             if ip_input is not None:
                 ip_input.text = found.ip
             scr.set_status(t("Найден роутер {model} на {ip}").format(
-                model=found.model or "Huawei", ip=found.ip), [0.2, 0.75, 0.45, 1])
+                model=found.model or "Huawei", ip=found.ip), hex_to_rgba(STATUS_HEX['good']))
         binder = None
         if platform == 'android':
             from core.local_transport import bind_android_socket
@@ -2189,7 +2295,7 @@ class Hua4GMonApp(App):
         if self.worker is not None:
             return
         self.demo_modem = None
-        self._conn_screen().set_status(t("Подключение..."), [0.9, 0.6, 0.2, 1])
+        self._conn_screen().set_status(t("Подключение..."), hex_to_rgba(STATUS_HEX['warn']))
         factory = None
         if platform == 'android':
             from functools import partial
@@ -2264,7 +2370,7 @@ class Hua4GMonApp(App):
         self._busy = False
         self._stop_beeps()
         set_keep_screen_on(False)
-        self._conn_screen().set_status("", [0.5, 0.5, 0.5, 1])
+        self._conn_screen().set_status("", hex_to_rgba(STATUS_HEX['nodata']))
         self.sm.current = 'connection'
 
     def _on_connected(self, info: dict[str, Any]) -> None:
@@ -2272,7 +2378,7 @@ class Hua4GMonApp(App):
         session = self.session
         if session is not None:
             self._band_list = lockable_bands(session.supported_bands, self.state.observed_bands)
-        self._conn_screen().set_status("", [0.5, 0.5, 0.5, 1])
+        self._conn_screen().set_status("", hex_to_rgba(STATUS_HEX['nodata']))
         self.sm.current = 'monitor'
         set_keep_screen_on(True)
         self._render_link_state()
@@ -2301,7 +2407,7 @@ class Hua4GMonApp(App):
 
     def _on_fatal(self, exc: BaseException) -> None:
         self.disconnect()
-        self._conn_screen().set_status(humanize_error(exc), [0.9, 0.3, 0.3, 1])
+        self._conn_screen().set_status(humanize_error(exc), hex_to_rgba(STATUS_HEX['error']))
 
     @staticmethod
     def _event_text(change: Any) -> str:
@@ -2319,16 +2425,16 @@ class Hua4GMonApp(App):
         if self.link == 'reconnecting':
             if lbl is not None:
                 lbl.text = t("Нет связи с роутером — переподключаюсь…")
-            scr.status_color = hex_to_rgba('#EAB308', sun)
+            scr.status_color = hex_to_rgba(STATUS_HEX['warn'], sun)
             ev = scr.ids.get('event_lbl')
             if detail and ev is not None:
                 ev.text = detail
                 # Aviso: ámbar, no el gris normal de los eventos (D7).
-                ev.color = hex_to_rgba('#EAB308', sun)
+                ev.color = hex_to_rgba(STATUS_HEX['warn'], sun)
         elif self.demo_modem is not None:
             if lbl is not None:
                 lbl.text = t("Тестовый режим")
-            scr.status_color = hex_to_rgba('#EAB308', sun)
+            scr.status_color = hex_to_rgba(STATUS_HEX['warn'], sun)
 
     # ---------- данные ----------
 
@@ -2383,7 +2489,7 @@ class Hua4GMonApp(App):
             if lbl is not None:
                 lbl.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                     s=self.state.age(now) or 0)
-                scr.status_color = hex_to_rgba('#EF4444', self.theme_name == 'sun')
+                scr.status_color = hex_to_rgba(STATUS_HEX['error'], self.theme_name == 'sun')
             else:
                 # La pantalla Señal nueva no tiene línea de estado: el
                 # aviso de datos obsoletos sale en la línea de eventos.
@@ -2392,7 +2498,7 @@ class Hua4GMonApp(App):
                     ev.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                         s=self.state.age(now) or 0)
                     # En rojo: que se distinga de un aviso normal (D7).
-                    ev.color = hex_to_rgba('#EF4444', self.theme_name == 'sun')
+                    ev.color = hex_to_rgba(STATUS_HEX['error'], self.theme_name == 'sun')
                     self._stale_warned = True
             self.refresh_graph(stale=True)
 
@@ -2546,7 +2652,7 @@ class Hua4GMonApp(App):
         elif snap.connection != 901 or snap.data_enabled is False:
             tips.insert(0, snap.network_message)
         ids.advice_lbl.text = "\n".join("• " + t(tip) for tip in tips[:2])
-        scr.advice_color = hex_to_rgba('#EAB308', sun)
+        scr.advice_color = hex_to_rgba(STATUS_HEX['warn'], sun)
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
@@ -2630,14 +2736,14 @@ class Hua4GMonApp(App):
                        (t('Копировать результат'), self._copy_survey))):
             bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
             for title, action in items:
-                button = Factory.FlatButton(text=title, font_size=sp(14))
+                button = Factory.FlatButton(text=title, font_size=sp(FONT['body']))
                 button.bind(on_release=lambda _b, fn=action: fn())
                 bar.add_widget(button)
             box.add_widget(bar)
         # Campo de informe con la piel del tema (antes fondo blanco con
         # texto oscuro, estilo por defecto de Kivy sin tematizar).
         self._survey_text = TextInput(
-            readonly=True, font_size=sp(14), multiline=True,
+            readonly=True, font_size=sp(FONT['body']), multiline=True,
             background_color=self.c_card, foreground_color=self.c_text,
             cursor_color=self.c_accent)
         box.add_widget(self._survey_text)
@@ -2723,12 +2829,12 @@ class Hua4GMonApp(App):
         # El ítem de tema nombra la acción («Cambiar a…» / «Volver a…»),
         # no el estado, para que no se lea al revés (D5).
         items = [
-            (t("ℹ Информация"), lambda: self.go('info'), sp(17)),
-            (t('Сканер наблюдений · Beta'), self.open_survey, sp(15)),
-            (t("⚙ Сеть"), lambda: self.go('tools'), sp(17)),
+            (t("ℹ Информация"), lambda: self.go('info'), sp(FONT['menu'])),
+            (t('Сканер наблюдений · Beta'), self.open_survey, sp(FONT['body'])),
+            (t("⚙ Сеть"), lambda: self.go('tools'), sp(FONT['menu'])),
             (t("☀ Вернуться к тёмной теме") if sun else t("☀ Включить солнце"),
-             lambda: self.apply_theme('dark' if sun else 'sun'), sp(17)),
-            (t("⏏ Отключиться"), self.confirm_disconnect, sp(17)),
+             lambda: self.apply_theme('dark' if sun else 'sun'), sp(FONT['menu'])),
+            (t("⏏ Отключиться"), self.confirm_disconnect, sp(FONT['menu'])),
         ]
         for text, action, fsize in items:
             btn = Factory.FlatButton(text=text, font_size=fsize,
@@ -2743,14 +2849,14 @@ class Hua4GMonApp(App):
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.label import Label
         content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
-        msg = Label(text=message, halign='center', valign='middle', font_size=sp(15))
+        msg = Label(text=message, halign='center', valign='middle', font_size=sp(FONT['body']))
         msg.bind(size=lambda i, v: setattr(i, 'text_size', v))
         content.add_widget(msg)
         btns = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(10))
         popup = self._style_popup(Popup(title=title, content=content,
                                         size_hint=(0.92, 0.55)))
-        no = Factory.FlatButton(text=t("← Назад"), font_size=sp(16), size_hint_x=1)
-        yes = Factory.PrimaryButton(text=yes_text, font_size=sp(16), size_hint_x=1)
+        no = Factory.FlatButton(text=t("← Назад"), font_size=sp(FONT['value']), size_hint_x=1)
+        yes = Factory.PrimaryButton(text=yes_text, font_size=sp(FONT['value']), size_hint_x=1)
         no.bind(on_release=lambda *a: popup.dismiss())
         yes.bind(on_release=lambda *a: (popup.dismiss(), on_yes()))
         btns.add_widget(no)
@@ -2766,10 +2872,11 @@ class Hua4GMonApp(App):
         from kivy.uix.label import Label
         from kivy.uix.scrollview import ScrollView
         lbl = Label(text=message, halign='left', valign='top', size_hint_y=None,
-                    font_size=sp(14))
+                    font_size=sp(FONT['body']))
         lbl.bind(width=lambda i, w: setattr(i, 'text_size', (w, None)),
                  texture_size=lambda i, ts: setattr(i, 'height', ts[1]))
-        sv = ScrollView()
+        sv = ScrollView(bar_color=self.c_sub,
+                        bar_inactive_color=[*self.c_sep[:3], 0.25])
         sv.add_widget(lbl)
         # 0,85 de alto: el texto de Ayuda mide ~459 px y con 0,8 el viewport
         # quedaba en 451 px, así que la última línea se cortaba 8 px.
@@ -2777,16 +2884,19 @@ class Hua4GMonApp(App):
                                 size_hint=(0.92, 0.85))).open()
 
     def toast(self, text: str, seconds: float = 2.0) -> None:
+        # Aviso flotante: texto blanco sobre velo negro, igual en los dos
+        # temas a propósito (en sol, el texto del tema sería negro sobre
+        # negro y no se leería). No es un color suelto: es el toast.
         from kivy.core.window import Window
         from kivy.graphics import Color, RoundedRectangle
         from kivy.uix.label import Label
-        lbl = Label(text=text, font_size=sp(15), size_hint=(None, None), color=(1, 1, 1, 1))
+        lbl = Label(text=text, font_size=sp(FONT['body']), size_hint=(None, None), color=(1, 1, 1, 1))
         lbl.texture_update()
         lbl.size = (lbl.texture_size[0] + dp(24), lbl.texture_size[1] + dp(16))
         lbl.pos = ((Window.width - lbl.width) / 2, dp(80))
         with lbl.canvas.before:
             Color(0, 0, 0, 0.8)
-            RoundedRectangle(pos=lbl.pos, size=lbl.size, radius=[dp(8)])
+            RoundedRectangle(pos=lbl.pos, size=lbl.size, radius=[dp(RADIUS['button'])])
         Window.add_widget(lbl)
         Clock.schedule_once(lambda dt: Window.remove_widget(lbl), seconds)
 
@@ -2798,7 +2908,7 @@ class Hua4GMonApp(App):
         close = Factory.FlatButton(text=t("← Назад"), size_hint_y=None, height=dp(48))
         inner.add_widget(graph)
         controls = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(4))
-        auto = Factory.FlatButton(text=t("Авто"), font_size=sp(14))
+        auto = Factory.FlatButton(text=t("Авто"), font_size=sp(FONT['body']))
         auto.bind(on_release=lambda *a: graph.auto())
         controls.add_widget(auto)
         controls.add_widget(close)
@@ -2919,15 +3029,15 @@ class Hua4GMonApp(App):
         grid = self._tools().ids.get('bands_grid')
         if grid is None or self._bands_shown == self._band_list:
             return
-        from kivy.uix.checkbox import CheckBox
+        from kivy.factory import Factory
         from kivy.uix.label import Label
         checked = {b for b, cb in self.band_vars.items() if cb.active}
         grid.clear_widgets()
         self.band_vars = {}
         row_h = dp(44)
         for band in self._band_list:
-            cb = CheckBox(size_hint=(None, None), width=dp(40), height=row_h,
-                          active=band in checked, color=self.c_accent)
+            cb = Factory.ThemedCheckBox(size_hint=(None, None), width=dp(40),
+                                        height=row_h, active=band in checked)
             lbl = Label(text=lte_band_label(band, t("МГц")), color=self.c_text,
                         halign='left', valign='middle', size_hint_y=None, height=row_h)
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
@@ -2953,12 +3063,12 @@ class Hua4GMonApp(App):
                     busy_text: str) -> None:
         """Команда роутеру: повторное нажатие до ответа игнорируется."""
         if self.session is None or self.link != 'online':
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if self._busy:
             return
         self._busy = True
-        self._net_msg(busy_text, '#3399ff')
+        self._net_msg(busy_text, STATUS_HEX['info'])
         session = self.session
 
         def finish(result: Any) -> None:
@@ -2973,7 +3083,7 @@ class Hua4GMonApp(App):
             self._survey_searching = False
             self._busy = False
             self._net_msg(t("Команда не выполнена: {err}").format(
-                err=humanize_error(exc)), '#d63031')
+                err=humanize_error(exc)), STATUS_HEX['error'])
         self._run_bg(work, finish, failed)
 
     def load_router_config(self) -> None:
@@ -3021,25 +3131,25 @@ class Hua4GMonApp(App):
         snap = self.state.last
         if (self.link != 'online' or snap is None or not snap.registered
                 or self.state.is_stale(time.monotonic(), self.interval)):
-            self._net_msg(t("Текущий бэнд ещё не определён."), '#d63031')
+            self._net_msg(t("Текущий бэнд ещё не определён."), STATUS_HEX['error'])
             return
         bands = [b for b in snap.bands if 1 <= b <= 63 and b in self.band_vars]
         if not bands:
-            self._net_msg(t("Текущий бэнд ещё не определён."), '#d63031')
+            self._net_msg(t("Текущий бэнд ещё не определён."), STATUS_HEX['error'])
             return
         for b, cb in self.band_vars.items():
             cb.active = b in bands
         self._net_msg(t("Отмечены текущие бэнды: {bands}").format(
-            bands=", ".join(f"B{b}" for b in bands)), '#3399ff')
+            bands=", ".join(f"B{b}" for b in bands)), STATUS_HEX['info'])
 
     def apply_bands(self) -> None:
         session = self.session
         selected = [b for b, cb in self.band_vars.items() if cb.active]
         if session is None or self.link != 'online':
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if not selected:
-            self._net_msg(t("Выберите хотя бы один диапазон!"), '#d63031')
+            self._net_msg(t("Выберите хотя бы один диапазон!"), STATUS_HEX['error'])
             return
         names = ", ".join(f"B{b}" for b in selected)
         lines = [t("Зафиксировать бэнды: {bands}?").format(bands=names)]
@@ -3060,7 +3170,7 @@ class Hua4GMonApp(App):
     def reset_bands(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         self._net_action(lambda: session.apply_plan(session.plan_all_bands()),
                          lambda ok: self._after_write(ok, t("Включены все бэнды (AUTO).")),
@@ -3069,12 +3179,12 @@ class Hua4GMonApp(App):
     def restore_bands(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         plan = session.plan_restore_original()
         if plan is None:
             self._net_msg(t("Исходные настройки не прочитаны — роутер не отдал net-mode."),
-                          '#d63031')
+                          STATUS_HEX['error'])
             return
         self._net_action(lambda: session.apply_plan(plan),
                          lambda ok: self._after_write(ok, t(
@@ -3084,10 +3194,10 @@ class Hua4GMonApp(App):
     def _after_write(self, verified: bool, success_text: str) -> None:
         if verified:
             self._net_msg(success_text + " " + t(
-                "Модем перерегистрируется в сети (до ~30 с)."), '#00b894')
+                "Модем перерегистрируется в сети (до ~30 с)."), STATUS_HEX['good'])
         else:
             self._net_msg(t("Команда отправлена, но роутер не подтвердил запись — "
-                            "проверьте строку «Сейчас на модеме»."), '#e68033')
+                            "проверьте строку «Сейчас на модеме»."), STATUS_HEX['warn'])
         self.load_router_config()
 
     def apply_antenna(self, label: str) -> None:
@@ -3095,10 +3205,10 @@ class Hua4GMonApp(App):
         rev = {t(k): k for k in ANTENNA_MODES}
         code = parse_antenna_value(rev.get(label, label))
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if code is None:
-            self._net_msg(t("Неизвестный режим антенны."), '#d63031')
+            self._net_msg(t("Неизвестный режим антенны."), STATUS_HEX['error'])
             return
 
         def work() -> int | None:
@@ -3106,26 +3216,26 @@ class Hua4GMonApp(App):
 
         def done(read_back: int | None) -> None:
             if read_back == code:
-                self._net_msg(t("Тип антенны изменён: {mode}").format(mode=label), '#00b894')
+                self._net_msg(t("Тип антенны изменён: {mode}").format(mode=label), STATUS_HEX['good'])
             elif read_back is None:
-                self._net_msg(t("Команда отправлена, но режим антенны не подтверждён."), '#e68033')
+                self._net_msg(t("Команда отправлена, но режим антенны не подтверждён."), STATUS_HEX['warn'])
             else:
                 self._net_msg(t("Роутер принял команду, но сообщает другой режим антенны."),
-                              '#e68033')
+                              STATUS_HEX['warn'])
         self._net_action(work, done, t("Переключаю антенну…"))
 
     def confirm_reattach(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def done(ok: bool) -> None:
             if ok:
-                self._net_msg(t("Связь переподключена."), '#00b894')
+                self._net_msg(t("Связь переподключена."), STATUS_HEX['good'])
             else:
                 self._net_msg(t("Не удалось включить мобильные данные — включите их в "
-                                "веб-интерфейсе роутера."), '#d63031')
+                                "веб-интерфейсе роутера."), STATUS_HEX['error'])
         self.confirm(t("Подтверждение"), t(
             "Переподключить мобильную связь?\n\nМобильные данные будут выключены и включены. Интернет временно пропадёт (обычно на 5–10 секунд). Смена соты и улучшение сигнала не гарантируются."), t("Переподключить"),
             lambda: self._net_action(session.reattach, done, t("Переподключаю связь…")))
@@ -3133,12 +3243,12 @@ class Hua4GMonApp(App):
     def confirm_reboot(self) -> None:
         session, worker = self.session, self.worker
         if session is None or worker is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def done(_: Any) -> None:
             self._net_msg(t("Роутер перезагружается — переподключусь автоматически."),
-                          '#3399ff')
+                          STATUS_HEX['info'])
         self.confirm(t("Подтверждение"), t(
             "Перезагрузить роутер?\n\nСоединение с интернетом прервётся "
             "на 1–2 минуты. Программа переподключится автоматически."),
@@ -3152,7 +3262,7 @@ class Hua4GMonApp(App):
         """
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def work() -> str:
@@ -3167,7 +3277,7 @@ class Hua4GMonApp(App):
             from kivy.core.clipboard import Clipboard
             Clipboard.copy(text)
             self._net_msg(t("Диагностика скопирована в буфер обмена. Личные номера "
-                            "замаскированы."), '#00b894')
+                            "замаскированы."), STATUS_HEX['good'])
         self._net_action(work, done, t("Собираю диагностику…"))
 
     def whitelist_check(self) -> None:
@@ -3178,7 +3288,7 @@ class Hua4GMonApp(App):
         session = self.session
         tools = self._tools()
         tools.wl_verdict = t("Проверка…")
-        tools.wl_color = hex_to_rgba('#EAB308', self.theme_name == 'sun')
+        tools.wl_color = hex_to_rgba(STATUS_HEX['warn'], self.theme_name == 'sun')
         tools.wl_detail = t("Проверка занимает несколько секунд.")
 
         def done(report: Any) -> None:

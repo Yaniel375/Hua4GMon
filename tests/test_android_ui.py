@@ -300,8 +300,112 @@ def test_sun_theme(app):
     app.apply_theme('dark')
     assert app.c_bg[0] < 0.2
     # Piel NetMonster: fondo casi negro y acento verde de marca.
-    assert app.c_bg == [0.07, 0.08, 0.07, 1]
-    assert app.c_accent == [0.05, 0.65, 0.39, 1]
+    # Los flotantes son int/255 exactos: el hex renderizado es #111411
+    # y #0CA663 (antes [0.07, 0.08, 0.07] y [0.05, 0.65, 0.39]
+    # se veían #111411 y #0CA563 por el truncado de Kivy).
+    assert app.c_bg == [17 / 255, 20 / 255, 17 / 255, 1]
+    assert app.c_accent == [12 / 255, 166 / 255, 99 / 255, 1]
+
+
+def test_palette_renders_exact_design_hex():
+    """Etapa 3: cada clave de THEMES renderiza EXACTAMENTE el hex de
+    diseño de PALETTE_HEX (Kivy trunca int(v*255))."""
+    import android_main
+
+    for theme_name, palette in android_main.PALETTE_HEX.items():
+        for key, design_hex in palette.items():
+            value = android_main.THEMES[theme_name][key]
+            rendered = "#{:02X}{:02X}{:02X}".format(
+                *(int(c * 255) for c in value[:3]))
+            assert rendered == design_hex.upper(), (theme_name, key,
+                                                    rendered, design_hex)
+
+
+def test_theme_keys_applied(app):
+    """Etapa 3: apply_theme aplica TODAS las claves de la paleta (salvo
+    las del gráfico, que se leen del dict en _redraw)."""
+    import android_main
+
+    # Claves que se leen del dict THEMES en Python (gráfico), no como
+    # propiedades de la app.
+    dict_only = {'c_graph_bg', 'c_graph_line', 'c_graph_nr', 'c_peak'}
+    for name in ('dark', 'sun'):
+        app.apply_theme(name)
+        for key, value in android_main.THEMES[name].items():
+            if key in dict_only:
+                continue
+            assert hasattr(app, key), (name, key)
+            assert list(getattr(app, key)) == list(value), (name, key)
+    app.apply_theme('dark')
+
+
+def test_scrollbars_use_theme_colors(app):
+    """Etapa 3: ningún ScrollView usa el gris por defecto de Kivy
+    ([0.7, 0.7, 0.7, 0.9]); todos llevan c_sub / c_sep del tema."""
+    from kivy.uix.scrollview import ScrollView
+
+    for name in ('connection', 'monitor', 'info', 'tools'):
+        scr = app.sm.get_screen(name)
+        found = [w for w in scr.walk() if isinstance(w, ScrollView)]
+        assert found, name
+        for sv in found:
+            assert list(sv.bar_color) == list(app.c_sub), name
+            assert list(sv.bar_inactive_color)[:3] == list(app.c_sep)[:3], name
+            assert sv.bar_inactive_color[3] == 0.25, name
+
+
+def test_font_scale_single_source(app):
+    """Etapa 3: la tipografía sale de FONT (un solo sitio): los roles
+    existen y los componentes los usan."""
+    from kivy.factory import Factory
+    from kivy.metrics import sp
+
+    import android_main
+
+    assert android_main.FONT == {
+        'display': 38, 'operator': 30, 'title': 22, 'hero': 34,
+        'big': 18, 'menu': 17, 'value': 16, 'body': 15, 'hint': 13,
+        'label': 12, 'small': 11.5, 'tiny': 10.5,
+    }
+    # Los valores por defecto de las reglas (no un widget con tamaño
+    # propio en una pantalla).
+    assert Factory.PrimaryButton().font_size == sp(android_main.FONT['value'])
+    assert Factory.FlatButton().font_size == sp(android_main.FONT['value'])
+    assert Factory.AutoLabel().font_size == sp(android_main.FONT['body'])
+    assert Factory.HintLabel().font_size == sp(android_main.FONT['hint'])
+    assert Factory.InfoLabel().font_size == sp(android_main.FONT['value'])
+
+
+def test_themed_checkbox_uses_theme(app):
+    """Etapa 3: las casillas de bandas son ThemedCheckBox (sin el atlas
+    blanco por defecto de Kivy) y su estado sigue funcionando."""
+    ensure_online(app)
+    app.go('tools')
+    assert pump(lambda: bool(app.band_vars), 5)
+    for cb in app.band_vars.values():
+        assert type(cb).__name__ == 'ThemedCheckBox'
+        assert cb.background_checkbox_normal == ''
+        assert cb.background_checkbox_down == ''
+    first = next(iter(app.band_vars.values()))
+    was = first.active
+    first.active = not was
+    assert first.active != was
+    first.active = was
+
+
+def test_status_hex_palette():
+    """Etapa 3: los colores de estado salen de STATUS_HEX (un verde,
+    un ámbar, un rojo, un azul y un gris) y renderizan exactos."""
+    import android_main
+
+    assert set(android_main.STATUS_HEX) == {
+        'good', 'warn', 'error', 'info', 'nodata',
+    }
+    for key, design_hex in android_main.STATUS_HEX.items():
+        value = android_main.hex_to_rgba(design_hex)
+        rendered = "#{:02X}{:02X}{:02X}".format(
+            *(int(c * 255) for c in value[:3]))
+        assert rendered == design_hex.upper(), (key, rendered)
 
 
 def test_sun_theme_status_colors_readable(app):
