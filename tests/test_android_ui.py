@@ -1186,3 +1186,44 @@ def test_help_popup_shows_all_content(app):
     back.dispatch('on_release')
     assert pump(lambda: not any(isinstance(w, Popup) for w in Window.children))
     pump(lambda: False, 0.2)
+
+
+def test_android_entry_point_as_main_py(tmp_path):
+    """Регрессия: на Android точка входа — main.py, а не android_main.
+
+    Buildozer копирует android_main.py как main.py, и KV делает
+    #:import android_main.FONT — без алиаса sys.modules в build()
+    приложение падало при запуске с ParserException/ModuleNotFoundError
+    (S21+, Android 15, APK aba4575), хотя вся сюита была зелёной:
+    pytest импортирует модуль как android_main, а телефон — как
+    __main__. Запускаем копию как main.py в подпроцессе: живое
+    приложение не завершается само, его убивает только таймаут.
+    """
+    import shutil
+    import subprocess
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    shutil.copy2(os.path.join(root, 'android_main.py'),
+                 tmp_path / 'main.py')
+    shutil.copytree(os.path.join(root, 'core'), tmp_path / 'core')
+    shutil.copytree(os.path.join(root, 'assets'), tmp_path / 'assets')
+    env = dict(os.environ)
+    env['PYTHONUNBUFFERED'] = '1'
+    def _text(value):
+        if isinstance(value, bytes):
+            return value.decode('utf-8', 'replace')
+        return value or ''
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, 'main.py'], cwd=tmp_path, env=env,
+            capture_output=True, text=True, timeout=12)
+    except subprocess.TimeoutExpired as exc:
+        out = _text(exc.stdout) + _text(exc.stderr)
+        assert 'ParserException' not in out
+        assert 'ModuleNotFoundError' not in out
+        assert "Unable to import package 'android_main'" not in out
+        return
+    out = _text(proc.stdout) + _text(proc.stderr)
+    pytest.fail(f"main.py завершился сам (код {proc.returncode}), "
+                f"а должен был жить до таймаута:\n{out[-4000:]}")

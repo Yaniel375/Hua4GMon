@@ -2696,6 +2696,15 @@ class Hua4GMonApp(App):
         self.lbl_back = t("← Назад")
         self._refresh_nav_labels()
         self._ca_signature: Any = None
+        # На Android точка входа — main.py (Buildozer копирует этот файл
+        # как main.py): модуля android_main в APK нет, а KV делает
+        # #:import android_main.FONT — без алиаса build() падает с
+        # ParserException/ModuleNotFoundError и приложение закрывается
+        # при запуске (регрессия Этапа 3). Алиасуем выполняемый модуль
+        # к его имени файла, чтобы директивы резолвились. В тестах
+        # модуль уже импортирован как android_main и setdefault
+        # ничего не делает.
+        sys.modules.setdefault('android_main', sys.modules[__name__])
         self.sm: ScreenManager = Builder.load_string(KV)
         Clock.schedule_interval(self._tick, 0.5)
         return self.sm
