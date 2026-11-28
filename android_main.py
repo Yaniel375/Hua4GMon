@@ -692,7 +692,10 @@ KV = """
 #:import dp kivy.metrics.dp
 #:import sp kivy.metrics.sp
 
-<ActionButton@Button>:
+# ¡No renombrar a ActionButton!: ese nombre ya lo registra Kivy
+# (kivy.uix.actionbar.ActionButton) y Kivy ignoraría esta regla,
+# lo que rompía los diálogos (botón de 10128 px, bucle textura↔ancho).
+<PrimaryButton@Button>:
     size_hint_x: 0.9
     pos_hint: {'center_x': 0.5}
     text_size: self.size
@@ -732,6 +735,50 @@ KV = """
         Line:
             rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
             width: dp(1)
+
+# Spinner con la piel del tema (antes usaba el gris claro por defecto
+# de Kivy, que rompía con la interfaz oscura): mismo fondo/borde que
+# FlatButton, texto del tema y flecha dibujada (el fondo por defecto
+# de Kivy trae su propia flecha y no se puede teñir).
+<ThemedSpinnerOption@Button>:
+    size_hint_y: None
+    height: dp(48)
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_text
+    font_size: sp(15)
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<ThemedSpinner@Spinner>:
+    background_normal: ''
+    background_down: ''
+    background_disabled_normal: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_text
+    option_cls: 'ThemedSpinnerOption'
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else (0.2, 0.2, 0.2, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(10)]
+    canvas.after:
+        Color:
+            rgba: app.c_btn_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(10)
+            width: dp(1)
+        Color:
+            rgba: app.c_sub
+        Triangle:
+            points: [self.right - dp(24), self.center_y + dp(3), self.right - dp(14), self.center_y + dp(3), self.right - dp(19), self.center_y - dp(4)]
 
 # Original mejorado: línea fina verde tenue (separador de sección) y
 # línea verde sólida de 2 dp (bajo el encabezado, como en la vista previa).
@@ -1101,7 +1148,7 @@ ScreenManager:
                     foreground_color: app.c_text
                     cursor_color: app.c_accent
                     on_text_validate: root.on_connect()
-            ActionButton:
+            PrimaryButton:
                 text: root.lbl_connect
                 on_release: root.on_connect()
             AutoLabel:
@@ -1130,7 +1177,7 @@ ScreenManager:
                     font_size: sp(14)
                     size_hint_x: None
                     width: dp(80)
-                Spinner:
+                ThemedSpinner:
                     id: lang_spinner
                     text: root.lang_name
                     values: root.lang_values
@@ -1463,7 +1510,9 @@ ScreenManager:
                         bold: True
                         color: app.c_text
                         size_hint_x: None
-                        width: dp(96)
+                        # «100%» a 34 sp negrita mide 106 px: 96 dp no dejaba
+                        # margen; 112 dp sí.
+                        width: dp(112)
                         text_size: self.size
                         halign: 'left'
                         valign: 'middle'
@@ -1564,7 +1613,7 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(42)
                     spacing: dp(6)
-                    Spinner:
+                    ThemedSpinner:
                         id: graph_param
                         text: 'sinr'
                         values: root.graph_values
@@ -1704,7 +1753,7 @@ ScreenManager:
                         size_hint_y: None
                         height: dp(48)
                         on_release: app.mark_current_bands()
-                    ActionButton:
+                    PrimaryButton:
                         text: root.lbl_apply_bands
                         on_release: app.apply_bands()
                     BoxLayout:
@@ -1720,14 +1769,14 @@ ScreenManager:
                 SectionCard:
                     SectionHead:
                         text: root.lbl_antenna
-                    Spinner:
+                    ThemedSpinner:
                         id: antenna_spinner
                         text: root.antenna_text
                         values: root.antenna_values
                         font_size: sp(16)
                         size_hint_y: None
                         height: dp(48)
-                    ActionButton:
+                    PrimaryButton:
                         text: root.lbl_apply_antenna
                         on_release: app.apply_antenna(antenna_spinner.text)
                 SectionCard:
@@ -1755,7 +1804,7 @@ ScreenManager:
                         text: root.lbl_whitelist
                     HintLabel:
                         text: root.hint_whitelist
-                    ActionButton:
+                    PrimaryButton:
                         text: root.lbl_wl_check
                         on_release: app.whitelist_check()
                     AutoLabel:
@@ -2020,6 +2069,7 @@ class Hua4GMonApp(App):
         self._wl_running = False        # идёт проверка белых списков
         self._fs_graph: SignalGraph | None = None
         self._last_back = 0.0
+        self._stale_warned = False   # aviso de datos obsoletos en event_lbl
         self._beep_ev: Any = None
         self.beeper = ToneBeeper()
         self.lbl_back = t("← Назад")
@@ -2258,6 +2308,10 @@ class Hua4GMonApp(App):
         return t("{at} смена соты: {old} → {new}").format(
             at=change.at, old=change.old_label, new=change.new_label)
 
+    def _demo_sub(self, sub: str) -> str:
+        """Subtítulo de la cabecera: en modo de prueba indica DEMO (D6)."""
+        return f"{sub} · DEMO" if self.demo_modem is not None else sub
+
     def _render_link_state(self, detail: str = "") -> None:
         scr = self.sm.get_screen('monitor')
         sun = self.theme_name == 'sun'
@@ -2269,6 +2323,8 @@ class Hua4GMonApp(App):
             ev = scr.ids.get('event_lbl')
             if detail and ev is not None:
                 ev.text = detail
+                # Aviso: ámbar, no el gris normal de los eventos (D7).
+                ev.color = hex_to_rgba('#EAB308', sun)
         elif self.demo_modem is not None:
             if lbl is not None:
                 lbl.text = t("Тестовый режим")
@@ -2301,6 +2357,14 @@ class Hua4GMonApp(App):
             ev = scr.ids.get('event_lbl')
             if ev is not None:
                 ev.text = self._event_text(change)
+                ev.color = self.c_sub
+        elif self._stale_warned:
+            # Llegaron datos frescos: se quita el aviso de obsoletos (D7).
+            ev = scr.ids.get('event_lbl')
+            if ev is not None:
+                ev.text = ""
+                ev.color = self.c_sub
+            self._stale_warned = False
         if snap.has_nr and 'nr_sinr' not in scr.graph_values:
             scr.graph_values = LTE_PARAMS + NR_PARAMS
         if any(b not in self._band_list for b in snap.bands) and self.session is not None:
@@ -2327,6 +2391,9 @@ class Hua4GMonApp(App):
                 if ev is not None:
                     ev.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                         s=self.state.age(now) or 0)
+                    # En rojo: que se distinga de un aviso normal (D7).
+                    ev.color = hex_to_rgba('#EF4444', self.theme_name == 'sun')
+                    self._stale_warned = True
             self.refresh_graph(stale=True)
 
     def _param_value(self, val: float | None, unit: str) -> str:
@@ -2424,13 +2491,13 @@ class Hua4GMonApp(App):
             ids.plmn_lbl.text = _format_plmn(snap.plmn)
             ids.tech_chip_lbl.text = _tech_chip(snap.rat)
             ids.tech_chip_lbl.opacity = 1 if snap.rat else 0
-            ids.op_sub_lbl.text = _operator_sub(snap.plmn)
+            ids.op_sub_lbl.text = self._demo_sub(_operator_sub(snap.plmn))
         else:
             ids.op_name_lbl.text = t(snap.network_message)
             ids.plmn_lbl.text = "—"
             ids.tech_chip_lbl.text = ""
             ids.tech_chip_lbl.opacity = 0
-            ids.op_sub_lbl.text = t("Оператор")
+            ids.op_sub_lbl.text = self._demo_sub(t("Оператор"))
         # --- Línea de ancla ---
         anchor = self._anchor_text(snap)
         scr.anchor_visible = bool(anchor)
@@ -2567,7 +2634,12 @@ class Hua4GMonApp(App):
                 button.bind(on_release=lambda _b, fn=action: fn())
                 bar.add_widget(button)
             box.add_widget(bar)
-        self._survey_text = TextInput(readonly=True, font_size=sp(14), multiline=True)
+        # Campo de informe con la piel del tema (antes fondo blanco con
+        # texto oscuro, estilo por defecto de Kivy sin tematizar).
+        self._survey_text = TextInput(
+            readonly=True, font_size=sp(14), multiline=True,
+            background_color=self.c_card, foreground_color=self.c_text,
+            cursor_color=self.c_accent)
         box.add_widget(self._survey_text)
         popup = self._style_popup(Popup(title=t('Сканер наблюдений · Beta'),
                                         content=box, size_hint=(0.97, 0.95)))
@@ -2646,16 +2718,20 @@ class Hua4GMonApp(App):
         popup = self._style_popup(Popup(title=t("Меню"), content=box,
                                         size_hint=(0.85, None), height=dp(450)))
         sun = self.theme_name == 'sun'
+        # (texto, acción, tamaño): el ítem del escáner va a 15 sp porque
+        # a 17 sp su texto mide 273 px y el botón solo 266 px (D2).
+        # El ítem de tema nombra la acción («Cambiar a…» / «Volver a…»),
+        # no el estado, para que no se lea al revés (D5).
         items = [
-            (t("ℹ Информация"), lambda: self.go('info')),
-            (t('Сканер наблюдений · Beta'), self.open_survey),
-            (t("⚙ Сеть"), lambda: self.go('tools')),
-            (t("☀ Солнце: выкл") if sun else t("☀ Солнце: вкл"),
-             lambda: self.apply_theme('dark' if sun else 'sun')),
-            (t("⏏ Отключиться"), self.confirm_disconnect),
+            (t("ℹ Информация"), lambda: self.go('info'), sp(17)),
+            (t('Сканер наблюдений · Beta'), self.open_survey, sp(15)),
+            (t("⚙ Сеть"), lambda: self.go('tools'), sp(17)),
+            (t("☀ Вернуться к тёмной теме") if sun else t("☀ Включить солнце"),
+             lambda: self.apply_theme('dark' if sun else 'sun'), sp(17)),
+            (t("⏏ Отключиться"), self.confirm_disconnect, sp(17)),
         ]
-        for text, action in items:
-            btn = Factory.FlatButton(text=text, font_size=sp(17),
+        for text, action, fsize in items:
+            btn = Factory.FlatButton(text=text, font_size=fsize,
                                      size_hint_y=None, height=dp(56))
             btn.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
             box.add_widget(btn)
@@ -2674,7 +2750,7 @@ class Hua4GMonApp(App):
         popup = self._style_popup(Popup(title=title, content=content,
                                         size_hint=(0.92, 0.55)))
         no = Factory.FlatButton(text=t("← Назад"), font_size=sp(16), size_hint_x=1)
-        yes = Factory.ActionButton(text=yes_text, font_size=sp(16), size_hint_x=1)
+        yes = Factory.PrimaryButton(text=yes_text, font_size=sp(16), size_hint_x=1)
         no.bind(on_release=lambda *a: popup.dismiss())
         yes.bind(on_release=lambda *a: (popup.dismiss(), on_yes()))
         btns.add_widget(no)
@@ -2695,8 +2771,10 @@ class Hua4GMonApp(App):
                  texture_size=lambda i, ts: setattr(i, 'height', ts[1]))
         sv = ScrollView()
         sv.add_widget(lbl)
+        # 0,85 de alto: el texto de Ayuda mide ~459 px y con 0,8 el viewport
+        # quedaba en 451 px, así que la última línea se cortaba 8 px.
         self._style_popup(Popup(title=title, content=sv,
-                                size_hint=(0.92, 0.8))).open()
+                                size_hint=(0.92, 0.85))).open()
 
     def toast(self, text: str, seconds: float = 2.0) -> None:
         from kivy.core.window import Window
@@ -2764,12 +2842,12 @@ class Hua4GMonApp(App):
             row('Агрегация (CA)', ca),
             row('Ширина канала', f"DL {dl} / UL {ul}" if ul else dl),
             row('Сектор антенны (PCI)', fmt_num(snap.pci)),
-            row('Cell ID (ECI)', snap.cell_id),
+            row('ID соты (ECI)', snap.cell_id),
             row('eNodeB (Вышка)', fmt_num(snap.enodeb) if snap.enodeb is not None else
                 (f"NCI {snap.nci}" if snap.nci else None)),
             row('Cell (Локальный сектор)', fmt_num(snap.sector)),
             row('TAC (зона)', snap.tac),
-            row('5G NR', nr),
+            row('Сеть 5G NR', nr),
         ]
         cells = [
             escape_markup(f"{'▶ ' if self.state.is_current_cell(c) else ''}{c.operator_label}"
@@ -2780,7 +2858,7 @@ class Hua4GMonApp(App):
             for c in self.state.top_cells()]
         info = self.session.device_info if self.session is not None else {}
         sim = [row(name, info.get(key)) for key, name in (
-            ('Imei', 'IMEI (роутер)'), ('Imsi', 'IMSI (SIM)'), ('Iccid', 'ICCID (SIM-карта)'),
+            ('Imei', 'IMEI (роутер)'), ('Imsi', 'IMSI (SIM-карта)'), ('Iccid', 'ICCID (SIM-карта)'),
             ('Msisdn', 'Номер телефона'), ('SerialNumber', 'Серийный номер'),
             ('DeviceName', 'Модель'), ('SoftwareVersion', 'Прошивка'))]
         mimo = mimo_status(snap.cqi0, snap.cqi1)
@@ -2814,12 +2892,12 @@ class Hua4GMonApp(App):
             row('Трафик за месяц (↓/↑)', month),
             row('Модуляция DL / UL', " / ".join(mods) if mods else None),
             row('Режим передачи (TM)' , format_mimo(snap.transmode) if snap.transmode else None),
-            row('MIMO', snap.mimo_matrix or None),
+            row('Схема MIMO', snap.mimo_matrix or None),
             row('Ранг MIMO LTE', t('Нет подтверждённых данных')),
             row('Ранг MIMO NR', format_rank(snap.nr_rank)),
             row('CQI кодовых слов', cqi),
             row('Мощность передатчика', tx),
-            row('RRC', snap.rrc),
+            row('Состояние RRC', snap.rrc),
             row('RSRP мин / макс', minmax('rsrp')),
             row('SINR мин / макс', minmax('sinr')),
         ]

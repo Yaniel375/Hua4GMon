@@ -82,7 +82,7 @@ def test_monitor_shows_live_data(app):
     # Cabecera del operador.
     assert ids.op_name_lbl.text == 'MegaFon'
     assert ids.plmn_lbl.text == '250 02'
-    assert ids.op_sub_lbl.text == 'ОПЕРАТОР · RU'
+    assert ids.op_sub_lbl.text == 'ОПЕРАТОР · RU · DEMO'  # D6: modo de prueba
     import android_main
     assert ids.tech_chip_lbl.text == android_main._tech_chip(app.state.last.rat)
     assert scr.anchor_visible and 'LTE 1800' in ids.anchor_lbl.text
@@ -343,7 +343,7 @@ def test_english_texts(app):
         assert scr.lbl_info_lte == "LTE INFORMATION"
         assert scr.lbl_signal_level == "SIGNAL LEVEL"
         assert scr.lbl_health == "SIGNAL HEALTH"
-        assert scr.ids.op_sub_lbl.text == "OPERATOR · RU"
+        assert scr.ids.op_sub_lbl.text == "OPERATOR · RU · DEMO"  # D6
     finally:
         core.set_language("ru")
         app.refresh_all_texts()
@@ -526,7 +526,7 @@ def test_signal_info_columns_equal_and_centered_actions(app):
     from kivy.factory import Factory
     for name in ('connection', 'tools'):
         actions = [w for w in app.sm.get_screen(name).walk()
-                   if isinstance(w, Factory.ActionButton)]
+                   if isinstance(w, Factory.PrimaryButton)]
         assert actions
         for button in actions:
             assert button.center_x == pytest.approx(button.parent.center_x)
@@ -678,7 +678,7 @@ def test_original_mejorado_style_everywhere(app):
     heads = [w for w in conn.walk() if isinstance(w, Factory.SectionHead)]
     assert heads and heads[0].text == core.t("Подключение")
     assert any(isinstance(w, Factory.GreenRule) for w in conn.walk())
-    actions = [w for w in conn.walk() if isinstance(w, Factory.ActionButton)]
+    actions = [w for w in conn.walk() if isinstance(w, Factory.PrimaryButton)]
     assert actions
     for btn in actions:
         assert any(isinstance(c, RoundedRectangle) for c in btn.canvas.before.children)
@@ -710,7 +710,7 @@ def test_original_mejorado_style_everywhere(app):
     popup = next(w for w in Window.children if isinstance(w, Popup))
     dialog_buttons = [w for w in popup.walk() if isinstance(w, Button)]
     assert any(isinstance(b, Factory.FlatButton) for b in dialog_buttons)
-    assert any(isinstance(b, Factory.ActionButton) for b in dialog_buttons)
+    assert any(isinstance(b, Factory.PrimaryButton) for b in dialog_buttons)
     popup.dismiss()
     app.go('monitor')
 
@@ -751,3 +751,193 @@ def test_lte_nr_graphs_main_and_fullscreen(app):
         pump(lambda: False, 0.1)
         app.set_graph_param('sinr')
         app.worker.resume()
+
+
+def test_confirm_dialog_buttons_have_touch_area(app):
+    """D1: el diálogo de confirmación tiene los dos botones con tamaño
+    táctil real y sin el bucle textura↔ancho (ni avisos de Clock)."""
+    import logging
+
+    from kivy.core.window import Window
+    from kivy.factory import Factory
+    from kivy.metrics import dp
+    from kivy.uix.button import Button
+    from kivy.uix.popup import Popup
+
+    ensure_online(app)
+    seen: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            seen.append(record.getMessage())
+
+    handler = _H()
+    logging.getLogger("kivy").addHandler(handler)
+    try:
+        type(app).confirm(app, "Título", "Mensaje", "Sí", lambda: None)
+        assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+        popup = next(w for w in Window.children if isinstance(w, Popup))
+        buttons = [w for w in popup.walk() if isinstance(w, Button)]
+        assert len(buttons) == 2
+        for btn in buttons:
+            assert btn.width > 100, (btn.text, btn.width)
+            assert btn.height == pytest.approx(dp(52))
+            assert btn.x >= popup.x - 1 and btn.right <= popup.right + 1
+        assert any(isinstance(b, Factory.PrimaryButton) for b in buttons)
+        assert any(isinstance(b, Factory.FlatButton) for b in buttons)
+        pump(lambda: False, 1.0)
+        assert not any("too much iteration" in m for m in seen)
+    finally:
+        logging.getLogger("kivy").removeHandler(handler)
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.2)
+
+
+def test_menu_items_fit_and_theme_label_is_action(app):
+    """D2: todos los ítems del Menú caben en su botón. D5: el ítem de
+    tema nombra la acción (cambiar/volver), no el estado."""
+    from kivy.core.window import Window
+    from kivy.uix.button import Button
+    from kivy.uix.popup import Popup
+
+    ensure_online(app)
+    app.apply_theme('dark')
+    app.open_menu()
+    assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    buttons = [w for w in popup.walk() if isinstance(w, Button)]
+    assert len(buttons) == 5
+    for btn in buttons:
+        assert btn.texture_size[0] <= btn.width, (
+            btn.text, btn.texture_size[0], btn.width)
+    assert any(b.text == core.t("☀ Включить солнце") for b in buttons)
+    popup.dismiss()
+    pump(lambda: False, 0.2)
+    app.apply_theme('sun')
+    try:
+        app.open_menu()
+        assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+        popup = next(w for w in Window.children if isinstance(w, Popup))
+        buttons = [w for w in popup.walk() if isinstance(w, Button)]
+        assert any(b.text == core.t("☀ Вернуться к тёмной теме") for b in buttons)
+        popup.dismiss()
+        pump(lambda: False, 0.2)
+    finally:
+        app.apply_theme('dark')
+
+
+def test_spinners_and_survey_text_use_theme(app):
+    """D3: los 3 Spinner usan la piel del tema (fondo, texto y opciones)
+    y el informe del escáner ya no es blanco con texto oscuro."""
+    from kivy.core.window import Window
+    from kivy.factory import Factory
+    from kivy.uix.dropdown import DropDown
+    from kivy.uix.popup import Popup
+    from kivy.uix.textinput import TextInput
+
+    ensure_online(app)
+    lang = app.sm.get_screen('connection').ids.lang_spinner
+    assert isinstance(lang, Factory.ThemedSpinner)
+    assert list(lang.background_color) == [0, 0, 0, 0]
+    assert list(lang.color) == list(app.c_text)
+    assert lang.option_cls in ('ThemedSpinnerOption', Factory.ThemedSpinnerOption)
+    graph = app.sm.get_screen('monitor').ids.graph_param
+    assert isinstance(graph, Factory.ThemedSpinner)
+    app.go('tools')
+    ant = app.sm.get_screen('tools').ids.antenna_spinner
+    assert isinstance(ant, Factory.ThemedSpinner)
+    assert list(ant.background_color) == [0, 0, 0, 0]
+    app.go('monitor')
+    graph.dispatch('on_release')
+    assert pump(lambda: any(isinstance(w, DropDown) for w in Window.children))
+    dd = next(w for w in Window.children if isinstance(w, DropDown))
+    options = list(dd.container.children)
+    assert options and all(isinstance(o, Factory.ThemedSpinnerOption)
+                           for o in options)
+    assert all(list(o.color) == list(app.c_text) for o in options)
+    dd.dismiss()
+    pump(lambda: False, 0.2)
+    app.open_survey()
+    assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    field = next(w for w in popup.walk() if isinstance(w, TextInput))
+    assert list(field.background_color) == list(app.c_card)
+    assert list(field.foreground_color) == list(app.c_text)
+    popup.dismiss()
+    pump(lambda: False, 0.2)
+
+
+def test_info_labels_translated_to_spanish(app):
+    """D4: las etiquetas de Información tienen traducción al español."""
+    ensure_online(app)
+    core.set_language("es")
+    try:
+        app.refresh_all_texts()
+        app.refresh_info_screen()
+        info = app.sm.get_screen('info')
+        assert "[b]ID de celda (ECI):[/b]" in info.ids.tower_block.text
+        assert "[b]5G NR:[/b]" in info.ids.tower_block.text
+        assert "[b]IMSI (SIM):[/b]" in info.ids.sim_block.text
+        assert "[b]MIMO:[/b]" in info.ids.status_block.text
+        assert "[b]RRC:[/b]" in info.ids.status_block.text
+    finally:
+        core.set_language("ru")
+        app.refresh_all_texts()
+
+
+def test_demo_mode_labelled_on_signal_screen(app):
+    """D6: en modo de prueba la Señal indica DEMO en la cabecera."""
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    assert ids.op_sub_lbl.text.endswith("· DEMO")
+
+
+def test_stale_data_warning_is_red_and_clears(app):
+    """D7: el aviso de datos obsoletos sale en rojo y se quita con
+    datos frescos."""
+    import android_main
+
+    ensure_online(app)
+    ids = app.sm.get_screen('monitor').ids
+    app.worker.pause()
+    try:
+        assert pump(lambda: "устарели" in ids.event_lbl.text, 10)
+        assert list(ids.event_lbl.color) == list(
+            android_main.hex_to_rgba('#EF4444', False))
+    finally:
+        app.worker.resume()
+    assert pump(lambda: ids.event_lbl.text == "", 10)
+    assert list(ids.event_lbl.color) == list(app.c_sub)
+
+
+def test_health_percent_label_fits_100(app):
+    """D8: la etiqueta del porcentaje tiene ancho para «100%» con margen."""
+    from kivy.metrics import dp
+
+    ensure_online(app)
+    lbl = app.sm.get_screen('monitor').ids.health_pct_lbl
+    assert lbl.width == pytest.approx(dp(112))
+    lbl.text = '100%'
+    assert pump(lambda: lbl.texture_size[0] <= lbl.width)
+
+
+def test_help_popup_shows_all_content(app):
+    """D10: el popup de Ayuda muestra todo el contenido sin cortar la
+    última línea."""
+    from kivy.core.window import Window
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+
+    app.go('connection')
+    app.sm.get_screen('connection').on_help()
+    assert pump(lambda: any(isinstance(w, Popup) for w in Window.children))
+    popup = next(w for w in Window.children if isinstance(w, Popup))
+    sv = next(w for w in popup.walk() if isinstance(w, ScrollView))
+    lbl = next(w for w in sv.children[0].walk() if isinstance(w, Label))
+    assert pump(lambda: lbl.height <= sv.height, 5)
+    assert lbl.text.endswith("без роутера.")
+    popup.dismiss()
+    pump(lambda: False, 0.2)

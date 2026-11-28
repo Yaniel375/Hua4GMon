@@ -700,10 +700,10 @@ EN: dict[str, str] = {
         "↩ As before",
     "⏏ Отключиться":
         "⏏ Disconnect",
-    "☀ Солнце: вкл":
-        "☀ Sun mode: on",
-    "☀ Солнце: выкл":
-        "☀ Sun mode: off",
+    "☀ Включить солнце":
+        "☀ Switch to sun mode",
+    "☀ Вернуться к тёмной теме":
+        "☀ Back to dark theme",
     "☰ Меню":
         "☰ Menu",
     ("⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе "
@@ -762,6 +762,11 @@ EN.update({
     'TM4 — с обратной связью': 'TM4 — closed-loop',
     'Ранг MIMO LTE': 'LTE MIMO rank',
     'Ранг MIMO NR': 'NR MIMO rank',
+    'ID соты (ECI)': 'Cell ID (ECI)',
+    'Сеть 5G NR': '5G NR',
+    'IMSI (SIM-карта)': 'IMSI (SIM)',
+    'Схема MIMO': 'MIMO',
+    'Состояние RRC': 'RRC',
     'Нет подтверждённых данных': 'No confirmed data',
     'Подключение': 'Connection',
     'Якорь': 'Anchor',
@@ -1048,8 +1053,8 @@ ES: dict[str, str] = {
     '← Назад': '← Atrás',
     '↩ Как было': '↩ Como estaba',
     '⏏ Отключиться': '⏏ Desconectar',
-    '☀ Солнце: вкл': '☀ Modo sol: sí',
-    '☀ Солнце: выкл': '☀ Modo sol: no',
+    '☀ Включить солнце': '☀ Cambiar a modo sol',
+    '☀ Вернуться к тёмной теме': '☀ Volver a modo oscuro',
     '☰ Меню': '☰ Menú',
     '⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе тест измерит чужой канал. Применимо только для РФ.': '⚠ El teléfono debe estar conectado a la Wi-Fi de este mismo router — si no, la prueba medirá otro enlace. Solo aplicable en Rusia.',
     '⟲ Пики': '⟲ Picos',
@@ -1088,6 +1093,11 @@ ES: dict[str, str] = {
     'TM4 — с обратной связью': 'TM4 — con realimentación',
     'Ранг MIMO LTE': 'Rango MIMO LTE',
     'Ранг MIMO NR': 'Rango MIMO NR',
+    'ID соты (ECI)': 'ID de celda (ECI)',
+    'Сеть 5G NR': '5G NR',
+    'IMSI (SIM-карта)': 'IMSI (SIM)',
+    'Схема MIMO': 'MIMO',
+    'Состояние RRC': 'RRC',
     'Нет подтверждённых данных': 'Sin datos confirmados',
     'Подключение': 'Conexión',
     'Якорь': 'Ancla',
