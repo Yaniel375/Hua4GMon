@@ -42,8 +42,6 @@ EN: dict[str, str] = {
     '{n} потоков': '{n} layers',
     'Команда отправлена, но режим антенны не подтверждён.': 'Command sent, but antenna mode was not confirmed.',
     'Мобильные данные выключены. Включите их в веб-интерфейсе роутера перед переподключением.': 'Mobile data is disabled. Enable it in the router web interface before reconnecting.',
-    "От {a:.0f} до {b:.0f} с назад":
-        "{a:.0f} to {b:.0f} s ago",
     "«Переподключить связь» выключает и включает мобильные данные. Интернет временно пропадёт. После перезагрузки программа переподключится сама.":
         "“Reconnect” turns mobile data off and back on. Internet access will be interrupted. After a reboot, the app reconnects automatically.",
     "Время +":
@@ -554,6 +552,18 @@ EN: dict[str, str] = {
         "not tested",
     "пик {v}":
         "peak {v}",
+    "▲ макс {v}":
+        "▲ max {v}",
+    "−{n} мин":
+        "−{n} min",
+    "−{n} с":
+        "−{n} s",
+    "сейчас":
+        "now",
+    "DEMO · демонстрационные данные":
+        "DEMO · simulated data",
+    "Если в этом бэнде нет сигнала, связь пропадёт.":
+        "If there is no signal on that band, you will lose the connection.",
     "↩ Вернуть как было":
         "↩ Restore as before",
     "⏹ Отключиться":
@@ -598,8 +608,6 @@ EN: dict[str, str] = {
     # --- Android (android_main.py) ---
     "В белых списках:":
         "Whitelisted:",
-    "ДЕМО · азимут {a}":
-        "DEMO · azimuth {a}",
     "Найти":
         "Find",
     "Нейтральные:":
@@ -608,12 +616,6 @@ EN: dict[str, str] = {
         "Reconnect link",
     "Скопировать диагностику":
         "Copy diagnostics",
-    "Тестовый режим":
-        "Test mode",
-    "♪ Звук":
-        "♪ Sound",
-    "⚙ Сеть":
-        "⚙ Network",
     ("IP по умолчанию: 192.168.8.1 (для B315/B525 — 192.168.1.1 или "
      "192.168.3.1) — кнопка «Найти» проверит их сама. Логин: admin, пароль "
      "— на наклейке роутера.\n"
@@ -686,6 +688,8 @@ EN: dict[str, str] = {
         "Check now",
     "Сеть":
         "Network",
+    "Сигнал":
+        "Signal",
     "Состояние":
         "Status",
     ("Список взят из модема; замеченные в эфире бэнды — первыми. Меняются "
@@ -696,26 +700,50 @@ EN: dict[str, str] = {
          "connection time."),
     "Тестовый режим (без модема)":
         "Test mode (no modem)",
-    "ℹ Информация":
-        "ℹ Information",
     "← Назад":
         "← Back",
     "↩ Как было":
         "↩ As before",
-    "⏏ Отключиться":
-        "⏏ Disconnect",
-    "☀ Солнце: вкл":
-        "☀ Sun mode: on",
-    "☀ Солнце: выкл":
-        "☀ Sun mode: off",
-    "☰ Меню":
-        "☰ Menu",
+    "В эфире · обновление каждую секунду":
+        "Live · updating every second",
+    "Тестовый режим · демонстрационные данные":
+        "Demo mode · simulated data",
+    "Сканер наблюдений":
+        "Network survey",
+    "Beta · наблюдайте соты, поворачивая антенну":
+        "Beta · watch cells while turning the antenna",
+    "Светлая тема для чтения под прямым солнцем":
+        "Light theme for reading in direct sunlight",
+    "Тёмная тема: тёмно-синий фон и бирюзовый акцент":
+        "Dark theme: dark-blue background and teal accent",
+    "Закрыть сессию с роутером":
+        "Close the session with the router",
+    "Включить солнце":
+        "Switch to sun mode",
+    "Вернуться к тёмной теме":
+        "Back to dark theme",
+    "70 % — худший параметр, 30 % — лучший, как считает приложение.":
+        "70% worst parameter + 30% best, as the app calculates it.",
+    "Сейчас на модеме:":
+        "Currently on the modem:",
+    "не прочитано":
+        "not read",
+    "в эфире":
+        "on air",
+    "Развернуть":
+        "Expand",
     ("⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе "
      "тест измерит чужой канал. Применимо только для РФ."):
         ("⚠ The phone must be connected to the Wi-Fi of this exact router — "
          "otherwise the test measures a different link. Applies to Russia only."),
     "⟲ Пики":
         "⟲ Peaks",
+    "ИНФОРМАЦИЯ LTE":
+        "LTE INFORMATION",
+    "ЗДОРОВЬЕ СИГНАЛА":
+        "SIGNAL HEALTH",
+    "АГРЕГАЦИЯ НЕСУЩИХ":
+        "CARRIER AGGREGATION",
 }
 
 
@@ -758,7 +786,19 @@ EN.update({
     'TM4 — с обратной связью': 'TM4 — closed-loop',
     'Ранг MIMO LTE': 'LTE MIMO rank',
     'Ранг MIMO NR': 'NR MIMO rank',
+    'ID соты (ECI)': 'Cell ID (ECI)',
+    'Сеть 5G NR': '5G NR',
+    'IMSI (SIM-карта)': 'IMSI (SIM)',
+    'Схема MIMO': 'MIMO',
+    'Состояние RRC': 'RRC',
     'Нет подтверждённых данных': 'No confirmed data',
+    'Подключение': 'Connection',
+    'Якорь': 'Anchor',
+    'Оператор': 'Operator',
+    'Всего': 'Total',
+    'Ширина полосы': 'Bandwidth',
+    '1 несущая активна': '1 carrier active',
+    '{n} несущих активны': '{n} carriers active',
 })
 
 
@@ -770,7 +810,6 @@ ES: dict[str, str] = {
     '{n} потоков': '{n} capas',
     'Команда отправлена, но режим антенны не подтверждён.': 'Comando enviado, pero el modo de antena no se confirmó.',
     'Мобильные данные выключены. Включите их в веб-интерфейсе роутера перед переподключением.': 'Los datos móviles están desactivados. Actívelos en la interfaz web del router antes de reconectar.',
-    'От {a:.0f} до {b:.0f} с назад': 'Hace de {a:.0f} a {b:.0f} s',
     '«Переподключить связь» выключает и включает мобильные данные. Интернет временно пропадёт. После перезагрузки программа переподключится сама.': '«Reconectar enlace» apaga y vuelve a encender los datos móviles. Internet se interrumpirá temporalmente. Tras un reinicio, la aplicación se reconecta sola.',
     'Время +': 'Tiempo +',
     'Время −': 'Tiempo −',
@@ -935,7 +974,7 @@ ES: dict[str, str] = {
     'Тип антенны изменён: {mode}': 'Tipo de antena cambiado: {mode}',
     'Трафик за месяц (↓/↑)': 'Tráfico del mes (↓/↑)',
     'Управление роутером': 'Gestión del router',
-    'Фиксация частот (Band Lock)': 'Fijación de bandas (Band Lock)',
+    'Фиксация частот (Band Lock)': 'Bloqueo de bandas',
     'Частота DL': 'Frecuencia DL',
     'Ширина канала': 'Ancho de canal',
     'Язык:': 'Idioma:',
@@ -986,6 +1025,12 @@ ES: dict[str, str] = {
     'Экспорт': 'Exportar',
     'не проверено': 'sin comprobar',
     'пик {v}': 'pico {v}',
+    '▲ макс {v}': '▲ máx {v}',
+    '−{n} мин': '−{n} min',
+    '−{n} с': '−{n} s',
+    'сейчас': 'ahora',
+    'DEMO · демонстрационные данные': 'DEMO · datos simulados',
+    'Если в этом бэнде нет сигнала, связь пропадёт.': 'Si no hay señal en esa banda perderás la conexión.',
     '↩ Вернуть как было': '↩ Dejar como estaba',
     '⏹ Отключиться': '⏹ Desconectar',
     '⚙️ Подключение': '⚙️ Conexión',
@@ -1005,14 +1050,10 @@ ES: dict[str, str] = {
     '🛡 Белые списки (РФ)': '🛡 Listas blancas (RU)',
     '🧾 Сохранить диагностику': '🧾 Guardar diagnóstico',
     'В белых списках:': 'En listas blancas:',
-    'ДЕМО · азимут {a}': 'DEMO · azimut {a}',
     'Найти': 'Buscar',
     'Нейтральные:': 'Neutrales:',
     'Переподключить связь': 'Reconectar enlace',
     'Скопировать диагностику': 'Copiar diagnóstico',
-    'Тестовый режим': 'Modo de prueba',
-    '♪ Звук': '♪ Sonido',
-    '⚙ Сеть': '⚙ Red',
     'IP по умолчанию: 192.168.8.1 (для B315/B525 — 192.168.1.1 или 192.168.3.1) — кнопка «Найти» проверит их сама. Логин: admin, пароль — на наклейке роутера.\n\nЧастые ошибки и что делать:\n• 108006 — неверный логин или пароль.\n• 108007 — слишком много неудачных попыток: роутер временно заблокировал вход. Подождите несколько минут.\n• 108003 — уже выполнен вход с другого устройства. Закройте веб-интерфейс роутера.\n• 100002 — функция не поддерживается этой моделью или прошивкой. Часть возможностей будет недоступна — это нормально.\n• 100003 / 125002 / 125003 — истекла сессия. Программа войдёт заново сама.\n• Нет ответа — проверьте, что телефон подключён к Wi-Fi именно этого роутера и IP введён верно.\n\nТестовый режим показывает работу программы без роутера.': 'IP por defecto: 192.168.8.1 (B315/B525: 192.168.1.1 o 192.168.3.1) — el botón «Buscar» las prueba automáticamente. Usuario: admin, la contraseña está en la etiqueta del router.\n\nErrores frecuentes y qué hacer:\n• 108006 — usuario o contraseña incorrectos.\n• 108007 — demasiados intentos fallidos: el router bloqueó el acceso temporalmente. Espere unos minutos.\n• 108003 — ya hay una sesión iniciada desde otro dispositivo. Cierre la interfaz web del router.\n• 100002 — no compatible con este modelo o firmware. Algunas funciones no estarán disponibles — es normal.\n• 100003 / 125002 / 125003 — la sesión caducó. La aplicación vuelve a iniciar sesión sola.\n• Sin respuesta — compruebe que el teléfono esté conectado a la Wi-Fi de este router y que la IP sea correcta.\n\nEl modo de prueba muestra cómo funciona la aplicación sin router.',
     'Белые списки (РФ)': 'Listas blancas (RU)',
     'Во весь экран': 'Pantalla completa',
@@ -1032,16 +1073,26 @@ ES: dict[str, str] = {
     'Портативный монитор LTE/5G Huawei': 'Monitor portátil LTE/5G para Huawei',
     'Проверить сейчас': 'Comprobar ahora',
     'Сеть': 'Red',
+    'Сигнал': 'Señal',
     'Состояние': 'Estado',
     'Список взят из модема; замеченные в эфире бэнды — первыми. Меняются только LTE-бэнды; «Как было» восстановит настройки, прочитанные при подключении.': 'La lista procede del módem; las bandas detectadas en el aire aparecen primero. Solo se cambian las bandas LTE; «Como estaba» restaura la configuración leída al conectar.',
     'Тестовый режим (без модема)': 'Modo de prueba (sin módem)',
-    'ℹ Информация': 'ℹ Información',
     '← Назад': '← Atrás',
     '↩ Как было': '↩ Como estaba',
-    '⏏ Отключиться': '⏏ Desconectar',
-    '☀ Солнце: вкл': '☀ Modo sol: sí',
-    '☀ Солнце: выкл': '☀ Modo sol: no',
-    '☰ Меню': '☰ Menú',
+    'В эфире · обновление каждую секунду': 'En vivo · actualizando cada segundo',
+    'Тестовый режим · демонстрационные данные': 'Modo de prueba · datos simulados',
+    'Сканер наблюдений': 'Escáner de observaciones',
+    'Beta · наблюдайте соты, поворачивая антенну': 'Beta · celdas al girar la antena',
+    'Светлая тема для чтения под прямым солнцем': 'Tema claro para leer bajo el sol',
+    'Тёмная тема: тёмно-синий фон и бирюзовый акцент': 'Tema oscuro: fondo azul noche y acento teal',
+    'Закрыть сессию с роутером': 'Cerrar la sesión con el router',
+    'Включить солнце': 'Cambiar a modo sol',
+    'Вернуться к тёмной теме': 'Volver a modo oscuro',
+    '70 % — худший параметр, 30 % — лучший, как считает приложение.': '70 % del peor parámetro + 30 % del mejor, como calcula la app.',
+    'Сейчас на модеме:': 'Ahora en el módem:',
+    'не прочитано': 'no leído',
+    'в эфире': 'en el aire',
+    'Развернуть': 'Ampliar',
     '⚠ Телефон должен быть подключён к Wi-Fi именно этого роутера — иначе тест измерит чужой канал. Применимо только для РФ.': '⚠ El teléfono debe estar conectado a la Wi-Fi de este mismo router — si no, la prueba medirá otro enlace. Solo aplicable en Rusia.',
     '⟲ Пики': '⟲ Picos',
     'Cell ID неизвестен: наблюдение не идентифицирует отдельную БС.': 'Cell ID desconocido: esta observación no identifica una estación base concreta.',
@@ -1079,7 +1130,22 @@ ES: dict[str, str] = {
     'TM4 — с обратной связью': 'TM4 — con realimentación',
     'Ранг MIMO LTE': 'Rango MIMO LTE',
     'Ранг MIMO NR': 'Rango MIMO NR',
+    'ID соты (ECI)': 'ID de celda (ECI)',
+    'Сеть 5G NR': '5G NR',
+    'IMSI (SIM-карта)': 'IMSI (SIM)',
+    'Схема MIMO': 'MIMO',
+    'Состояние RRC': 'RRC',
     'Нет подтверждённых данных': 'Sin datos confirmados',
+    'Подключение': 'Conexión',
+    'Якорь': 'Ancla',
+    'Оператор': 'Operador',
+    'Всего': 'Total',
+    'Ширина полосы': 'Ancho de banda',
+    '1 несущая активна': '1 portadora activa',
+    '{n} несущих активны': '{n} portadoras activas',
+    'ИНФОРМАЦИЯ LTE': 'INFORMACIÓN LTE',
+    'ЗДОРОВЬЕ СИГНАЛА': 'SALUD DE SEÑAL',
+    'АГРЕГАЦИЯ НЕСУЩИХ': 'CARRIER AGGREGATION',
 }
 
 

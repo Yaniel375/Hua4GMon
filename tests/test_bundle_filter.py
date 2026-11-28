@@ -166,7 +166,7 @@ def test_rthook_reports_loading_stage(monkeypatch):
     shown = []
     monkeypatch.setitem(sys.modules, "pyi_splash", types.SimpleNamespace(update_text=shown.append))
     runpy.run_path(str(RTHOOK))
-    assert shown == ["Загрузка программы…"]
+    assert shown == ["Cargando la aplicación…"]
 
 
 def _splash_not_started(text):

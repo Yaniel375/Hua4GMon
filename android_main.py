@@ -72,7 +72,14 @@ from kivy.clock import Clock
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
 from kivy.metrics import dp, sp
-from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
+from kivy.properties import (
+    BooleanProperty,
+    ListProperty,
+    NumericProperty,
+    StringProperty,
+)
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -85,9 +92,11 @@ from core import (
     DISCOVERY_CANDIDATES,
     GRAPH_HISTORY,
     LANGUAGES,
+    LTE_BAND_TABLE,
     MIMO_LABELS,
     RAT_LABELS,
     REGION_BANDS,
+    SIGNAL_THRESHOLDS,
     SUN_CARD_BG,
     UPLINK_LABELS,
     DemoModem,
@@ -101,7 +110,6 @@ from core import (
     calculate_overall_health,
     configure_library_logging,
     current_language,
-    demo_angle_hint,
     demo_factory,
     diagnostics_json,
     discover_router,
@@ -116,7 +124,6 @@ from core import (
     library_version,
     lock_warnings,
     lockable_bands,
-    lte_band_label,
     mimo_status,
     parse_antenna_value,
     readable_on,
@@ -150,21 +157,96 @@ _FONT_PATH = os.path.join(_ASSETS, 'DejaVuSans.ttf')
 # Жирное начертание — для крупных значений и заголовков (читаемость на солнце).
 _FONT_BOLD_PATH = os.path.join(_ASSETS, 'DejaVuSans-Bold.ttf')
 
-THEMES: dict[str, dict[str, list[float]]] = {
+def _rgba(color: str, alpha: float = 1.0) -> list[float]:
+    """'#RRGGBB' → [r/255, g/255, b/255, alpha] con el hex EXACTO.
+
+    Kivy trunca int(v*255) al renderizar: el acento #2DD4BF escrito
+    como [0.18, 0.83, 0.75] se vería #2DD4BE. Con int/255 el hex
+    renderizado es exactamente el de diseño.
+    """
+    h = color.lstrip('#')
+    return [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)] + [alpha]
+
+
+# Paleta Estilo A — Instrumento oscuro moderno (spec §1): UN SOLO
+# SITIO. Toda la interfaz — pantallas, botones, spinners, popups,
+# gráfico — toma sus colores de aquí (vía THEMES / app.c_* /
+# STATUS_HEX); no hay hex ni flotantes sueltos fuera de este bloque,
+# de SKIN_SIGNAL_COLORS ni de los degradados que derivan de STATUS_HEX.
+PALETTE_HEX: dict[str, dict[str, str]] = {
+    # Estilo A: fondo azul noche, tarjetas apenas más claras y un
+    # solo acento teal #2DD4BF (solo activos y botones primarios).
     'dark': {
-        'c_bg': [0.07, 0.09, 0.12, 1], 'c_card': [0.12, 0.14, 0.18, 1],
-        'c_text': [0.92, 0.94, 0.96, 1], 'c_sub': [0.62, 0.67, 0.72, 1],
-        'c_accent': [0.04, 0.47, 0.84, 1], 'c_button2': [0.2, 0.24, 0.3, 1],
-        'c_graph_bg': [0.1, 0.12, 0.16, 1], 'c_grid': [0.2, 0.23, 0.27, 1],
+        'c_bg': '#0B0F14', 'c_card': '#121923', 'c_text': '#F1F5F9',
+        'c_sub': '#94A3B8', 'c_accent': '#2DD4BF', 'c_button2': '#1E2835',
+        'c_graph_bg': '#0F151D', 'c_grid': '#1E2835',
+        'c_btn_border': '#1E2835', 'c_on_accent': '#05201C',
+        'c_sep': '#1E2835', 'c_border': '#1E2835', 'c_nodata': '#808080',
+        'c_on_warn': '#1A1A1A',
+        'c_btn_down': '#2C3E55', 'c_accent_down': '#0D9488',
+        'c_graph_line': '#2DD4BF', 'c_graph_nr': '#FFA633',
+        'c_peak': '#FACC15',
     },
-    # «Солнце»: максимальный контраст для экрана под прямым солнцем.
+    # «Солнце»: máximo contraste para la pantalla bajo el sol directo.
     'sun': {
-        'c_bg': [1, 1, 1, 1], 'c_card': [0.92, 0.93, 0.94, 1],
-        'c_text': [0, 0, 0, 1], 'c_sub': [0.2, 0.2, 0.2, 1],
-        'c_accent': [0.0, 0.3, 0.7, 1], 'c_button2': [0.8, 0.82, 0.85, 1],
-        'c_graph_bg': [1, 1, 1, 1], 'c_grid': [0.8, 0.8, 0.8, 1],
+        'c_bg': '#FFFFFF', 'c_card': '#EBEDEF', 'c_text': '#000000',
+        'c_sub': '#333333', 'c_accent': '#004CB2', 'c_button2': '#CCD1D8',
+        'c_graph_bg': '#FFFFFF', 'c_grid': '#CCCCCC',
+        'c_btn_border': '#000000', 'c_on_accent': '#FFFFFF',
+        'c_sep': '#CCCCCC', 'c_border': '#000000', 'c_nodata': '#808080',
+        'c_on_warn': '#1A1A1A',
+        'c_btn_down': '#B3B8BF', 'c_accent_down': '#003D8F',
+        'c_graph_line': '#0066A6', 'c_graph_nr': '#A64D00',
+        'c_peak': '#333333',
     },
 }
+
+THEMES: dict[str, dict[str, list[float]]] = {
+    name: {key: _rgba(value) for key, value in theme.items()}
+    for name, theme in PALETTE_HEX.items()
+}
+# En sol los bordes son transparentes (como antes): el hex no lleva alfa.
+THEMES['sun']['c_btn_border'] = _rgba('#000000', 0.0)
+THEMES['sun']['c_border'] = _rgba('#000000', 0.0)
+
+
+# Colores de estado (misma paleta: verde, ámbar, rojo, azul y gris
+# — sin valores sueltos). Se pasan por skin_hex/hex_to_rgba, que en
+# tema sol los oscurecen para un contraste ≥ 4,5:1.
+STATUS_HEX: dict[str, str] = {
+    'good': '#22C55E', 'warn': '#FACC15', 'error': '#EF4444',
+    'info': '#3399FF', 'nodata': '#808080',
+}
+
+
+# Escala semántica de señal Estilo A (spec §1): excelente, buena,
+# regular, mala, crítica. La usan las zonas del gráfico y la barra
+# de las tarjetas de métricas.
+SEMANTIC_HEX: dict[str, str] = {
+    'excellent': '#22C55E', 'good': '#84CC16', 'regular': '#FACC15',
+    'bad': '#F97316', 'critical': '#EF4444',
+}
+
+
+def _hex_rgb(color: str) -> tuple[int, int, int]:
+    """'#RRGGBB' → (r, g, b) en 0-255 (para la textura del degradado)."""
+    h = color.lstrip('#')
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+# Escala tipográfica única (sp): un solo sitio, roles con nombre.
+# Los valores sueltos por pantalla se normalizaron a estos roles
+# (10→10,5; 11→11,5; 12,5→13; 14/14,5→15; 15,5→16; 19→18).
+FONT: dict[str, float] = {
+    'display': 38, 'operator': 30, 'title': 22, 'hero': 34,
+    'big': 18, 'menu': 17, 'value': 16, 'body': 15, 'hint': 13,
+    'label': 12, 'small': 11.5, 'tiny': 10.5,
+}
+
+
+# Radios del sistema (dp, spec §2): tarjetas 20, métricas 16,
+# botones 14, chips 6, píldora 16.
+RADIUS: dict[str, int] = {'card': 20, 'metric': 16, 'button': 14, 'chip': 6, 'pill': 16}
 
 
 def unit_of(param: str) -> str:
@@ -176,6 +258,31 @@ def fmt_num(value: float | None) -> str:
     if value is None or not math.isfinite(value):
         return "-"
     return str(value) if isinstance(value, int) else f"{value:g}"
+
+
+# Estilo A: los colores de calidad de señal del núcleo
+# (verde/ámbar/rojo de SIGNAL_THRESHOLDS y de la salud general) se
+# traducen a la escala semántica. La lógica y los umbrales no cambian;
+# solo el color que se muestra. Lo no listado pasa tal cual.
+SKIN_SIGNAL_COLORS: dict[str, str] = {
+    '#00b894': SEMANTIC_HEX['excellent'], '#2ecc71': SEMANTIC_HEX['good'],
+    '#33cc66': SEMANTIC_HEX['good'], 'green': SEMANTIC_HEX['excellent'],
+    '#fdcb6e': SEMANTIC_HEX['regular'], '#e68033': SEMANTIC_HEX['bad'],
+    'orange': SEMANTIC_HEX['bad'],
+    '#d63031': SEMANTIC_HEX['critical'], '#d93333': SEMANTIC_HEX['critical'],
+    'red': SEMANTIC_HEX['critical'],
+}
+
+
+def skin_hex(color: str) -> str:
+    """Color de señal del núcleo → color de la escala semántica."""
+    return SKIN_SIGNAL_COLORS.get(color, SKIN_SIGNAL_COLORS.get(color.lower(), color))
+
+
+def _theme_rgba(theme: dict[str, list[float]], key: str) -> tuple[float, float, float, float]:
+    """Color del tema como tupla RGBA de 4 (para Color/*args de Kivy)."""
+    v = theme[key]
+    return (v[0], v[1], v[2], v[3])
 
 
 def hex_to_rgba(color: str, sun: bool = False) -> list[float]:
@@ -194,6 +301,86 @@ def hex_to_rgba(color: str, sun: bool = False) -> list[float]:
     except (ValueError, IndexError):
         rgb = [0.5, 0.5, 0.5]
     return [*rgb, 1.0]
+
+
+# Original mejorado: MCC → código ISO del país para la cabecera
+# («OPERADOR · CU»). Asignaciones ITU; si el MCC no está, solo «OPERADOR».
+_MCC_COUNTRY: dict[str, str] = {
+    '208': 'FR', '214': 'ES', '222': 'IT', '226': 'RO', '228': 'CH',
+    '230': 'CZ', '231': 'SK', '232': 'AT', '234': 'GB', '238': 'DK',
+    '242': 'NO', '244': 'FI', '246': 'LT', '247': 'LV', '248': 'EE',
+    '250': 'RU', '255': 'UA', '257': 'BY', '260': 'PL', '262': 'DE',
+    '268': 'PT', '272': 'IE', '310': 'US', '311': 'US', '312': 'US',
+    '334': 'MX', '368': 'CU', '401': 'KZ', '716': 'PE', '722': 'AR',
+    '724': 'BR', '730': 'CL', '732': 'CO', '738': 'BO', '740': 'EC',
+    '744': 'PY', '746': 'JM',
+}
+
+
+def _operator_sub(plmn: str) -> str:
+    """'OPERADOR · CU' — el país sale del MCC del PLMN, si se conoce."""
+    cc = _MCC_COUNTRY.get(plmn[:3]) if len(plmn) >= 3 else None
+    text = f"{t('Оператор')} · {cc}" if cc else t('Оператор')
+    return text.upper()
+
+
+def _format_plmn(plmn: str) -> str:
+    """'36801' → '368 01' (MCC + MNC)."""
+    if len(plmn) in (5, 6):
+        return f"{plmn[:3]} {plmn[3:]}"
+    return plmn
+
+
+def _tech_chip(rat: str) -> str:
+    """Chip de tecnología para la cabecera ('4G LTE', '5G NSA'...)."""
+    return {'lte': '4G LTE', 'lte_ca': '4G LTE+', 'nr_nsa': '5G NSA',
+            'nr_sa': '5G SA', '3g': '3G', '2g': '2G'}.get(rat, '')
+
+
+def _band_freq_name(band: int) -> str:
+    """Frecuencia nominal del bánd ('1800' para B3) o '' si no se conoce."""
+    info = LTE_BAND_TABLE.get(band)
+    if info is None:
+        return ""
+    return info[0].split()[0]
+
+
+# Rangos de las barras de las tarjetas de métricas (la posición del
+# valor en su rango, como las antiguas barras de NIVEL DE SEÑAL;
+# RSRQ/RSSI con los rangos del preview).
+_METRIC_RANGES: dict[str, tuple[float, float]] = {
+    'sinr': (-20.0, 30.0), 'rsrp': (-140.0, -44.0),
+    'rsrq': (-30.0, -3.0), 'rssi': (-110.0, -40.0),
+}
+
+
+def _primary_band(snap: Snapshot) -> int | None:
+    """Banda principal (la primera de snap.bands) o None si no hay."""
+    return snap.bands[0] if snap.bands else None
+
+
+def _primary_band_label(snap: Snapshot) -> str:
+    """'B3 · 1800' para la banda principal, o '—' si no se conoce."""
+    band = _primary_band(snap)
+    if band is None:
+        return "—"
+    freq = _band_freq_name(band)
+    return f"B{band} · {freq}" if freq else f"B{band}"
+
+
+def _primary_band_duplex(snap: Snapshot) -> str:
+    """'FDD'/'TDD' de la banda principal, o '—' si no se conoce."""
+    band = _primary_band(snap)
+    if band is None:
+        return "—"
+    info = LTE_BAND_TABLE.get(band)
+    return info[1] if info else "—"
+
+
+def _dash_num(value: float | int | None) -> str:
+    """Número o '—' si falta (las filas de INFORMACIÓN LTE)."""
+    text = fmt_num(value)
+    return "—" if text == "-" else text
 
 
 def beep_interval(delta: float | None) -> float:
@@ -275,7 +462,7 @@ class ToneBeeper:
 class CardLabel(Label):
     """Fit the complete caption inside its share of a metric card."""
     caption = StringProperty('')
-    base_size = NumericProperty(sp(14))
+    base_size = NumericProperty(sp(FONT['body']))
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -303,6 +490,309 @@ class CardLabel(Label):
             1, available / max(1, width), max(1, self.height - dp(2)) / max(1, height))
 
 
+def _threshold_zones(param: str, y_min: float, y_max: float) -> list[tuple[float, float, str]]:
+    """Bandas de calidad de un parámetro, recortadas a [y_min, y_max]:
+    (valor inferior, valor superior, color del núcleo).
+
+    Las reglas de SIGNAL_THRESHOLDS van de mejor a peor con umbrales
+    descendentes; la última (umbral None) es la peor banda, bajo el
+    umbral más bajo. La lógica y los umbrales no cambian; solo se
+    dibujan como zonas (barra de la tarjeta y fondo del gráfico).
+    """
+    rules = SIGNAL_THRESHOLDS.get(param, [])
+    zones: list[tuple[float, float, str]] = []
+    for i, (_thr, _text, color, _pct) in enumerate(rules):
+        thr = rules[i][0]
+        if i == 0:
+            # La mejor banda: desde su umbral hasta arriba.
+            lo = thr if thr is not None else y_min
+            hi = y_max
+        elif thr is None:
+            # La peor banda (fallback): bajo el umbral más bajo.
+            lo, hi = y_min, rules[i - 1][0]
+        else:
+            lo, hi = thr, rules[i - 1][0]
+        if lo is None:
+            lo = y_min
+        if hi is None:
+            hi = y_max
+        lo = max(y_min, min(y_max, lo))
+        hi = max(y_min, min(y_max, hi))
+        if hi > lo:
+            zones.append((lo, hi, color))
+    return zones
+
+
+class ZoneBar(Widget):
+    """Barra de calidad de una tarjeta de métrica (Estilo A §2/§3):
+    zonas de color tenues según los umbrales de SIGNAL_THRESHOLDS
+    del parámetro, y un marcador claro en la posición del valor.
+
+    La lógica y los umbrales no cambian (son los del núcleo); solo
+    se dibujan como zonas en vez de un relleno de un solo color.
+    """
+
+    param = StringProperty('')
+    pct = NumericProperty(0)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.bind(pos=self._redraw, size=self._redraw,
+                  param=self._redraw, pct=self._redraw)
+
+    def _redraw(self, *_args: Any) -> None:
+        from kivy.graphics import Color, Line, Rectangle
+        self.canvas.clear()
+        if self.width <= 0 or self.height <= 0:
+            return
+        app = App.get_running_app()
+        sun = bool(app and app.theme_name == 'sun')
+        lo, hi = _METRIC_RANGES.get(self.param, (0.0, 100.0))
+        span = hi - lo or 1.0
+
+        def x_of(value: float) -> float:
+            frac = (max(lo, min(hi, value)) - lo) / span
+            return self.x + self.width * frac
+
+        rules = _threshold_zones(self.param, lo, hi)
+        with self.canvas:
+            Color(*(app.c_sep if app else (0.16, 0.18, 0.16, 1)))
+            Rectangle(pos=self.pos, size=self.size)
+            # Bandas de calidad según los umbrales del núcleo.
+            for zone_lo, zone_hi, zone_col in rules:
+                x1, x2 = x_of(zone_lo), x_of(zone_hi)
+                if x2 <= x1:
+                    continue
+                rgba = hex_to_rgba(skin_hex(zone_col), sun)
+                Color(rgba[0], rgba[1], rgba[2], 0.25)
+                Rectangle(pos=(x1, self.y), size=(x2 - x1, self.height))
+            # Marcador del valor actual (color del texto: blanco en
+            # oscuro, negro en sol).
+            marker = app.c_text if app else (1, 1, 1, 1)
+            Color(*marker)
+            mx = self.x + self.width * max(0.0, min(100.0, self.pct)) / 100.0
+            Line(points=[mx, self.y, mx, self.top], width=dp(2),
+                 cap='round')
+
+
+class IconWidget(Widget):
+    """Icono vectorial de líneas (sin emojis): se dibuja con canvas.
+
+    Coordenadas relativas al centro y al lado menor del widget, así el
+    mismo icono sirve en la tarjeta de Conexión, en el Menú y en los
+    botones. Iconos: info, radar, gear, sun, moon, power, router, lock,
+    eye, eye_off, expand, check, signal, network, tower, menu.
+    """
+    icon = StringProperty('')
+    icon_color = ListProperty([1, 1, 1, 1])
+    line_width = NumericProperty(2)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.bind(icon=self._redraw, icon_color=self._redraw,
+                  size=self._redraw, pos=self._redraw)
+
+    def _line(self, points: list[float], width: float | None = None) -> None:
+        from kivy.graphics import Line
+        Line(points=points, width=width or float(self.line_width),
+             cap='round', joint='round')
+
+    def _circle(self, cx: float, cy: float, r: float,
+                start: float = 0, end: float = 360) -> None:
+        from kivy.graphics import Line
+        Line(circle=(cx, cy, r, start, end), width=float(self.line_width),
+             cap='round')
+
+    def _dot(self, cx: float, cy: float, r: float) -> None:
+        from kivy.graphics import Ellipse
+        Ellipse(pos=(cx - r, cy - r), size=(2 * r, 2 * r))
+
+    def _rays(self, cx: float, cy: float, r0: float, r1: float,
+              angles: list[float]) -> None:
+        import math
+        for a in angles:
+            rad = math.radians(a)
+            self._line([cx + r0 * math.cos(rad), cy + r0 * math.sin(rad),
+                        cx + r1 * math.cos(rad), cy + r1 * math.sin(rad)])
+
+    def _redraw(self, *args: Any) -> None:
+        from kivy.graphics import Color, Line
+        self.canvas.clear()
+        if not self.icon or self.width <= 0 or self.height <= 0:
+            return
+        cx, cy = self.center_x, self.center_y
+        r = min(self.width, self.height) / 2
+        with self.canvas:
+            Color(*self.icon_color)
+            if self.icon == 'info':
+                self._circle(cx, cy, 0.85 * r)
+                self._dot(cx, cy + 0.42 * r, 0.09 * r)
+                self._line([cx, cy + 0.12 * r, cx, cy - 0.45 * r])
+            elif self.icon == 'radar':
+                self._dot(cx, cy, 0.1 * r)
+                self._circle(cx, cy, 0.45 * r, 20, 70)
+                self._circle(cx, cy, 0.78 * r, 20, 70)
+                self._circle(cx, cy, 0.78 * r, 200, 250)
+            elif self.icon == 'gear':
+                self._circle(cx, cy, 0.34 * r)
+                self._rays(cx, cy, 0.46 * r, 0.85 * r,
+                           [0, 45, 90, 135, 180, 225, 270, 315])
+            elif self.icon == 'sun':
+                self._circle(cx, cy, 0.32 * r)
+                self._rays(cx, cy, 0.48 * r, 0.82 * r,
+                           [0, 45, 90, 135, 180, 225, 270, 315])
+            elif self.icon == 'moon':
+                # Luna creciente (menú: tema): arco exterior y arco
+                # interior que se encuentran en las dos puntas.
+                self._circle(cx, cy, 0.7 * r, 45, 315)
+                self._circle(cx + 0.3 * r, cy, 0.53 * r, 69, 291)
+            elif self.icon == 'power':
+                self._circle(cx, cy, 0.68 * r, 40, 320)
+                self._line([cx, cy + 0.88 * r, cx, cy + 0.18 * r])
+            elif self.icon == 'router':
+                Line(rectangle=(cx - 0.82 * r, cy - 0.38 * r,
+                                1.64 * r, 0.76 * r),
+                     width=float(self.line_width))
+                for dx in (-0.55, -0.18, 0.18, 0.55):
+                    self._dot(cx + dx * r, cy, 0.09 * r)
+                self._line([cx - 0.4 * r, cy + 0.62 * r,
+                            cx + 0.4 * r, cy + 0.62 * r])
+            elif self.icon == 'lock':
+                self._circle(cx, cy + 0.22 * r, 0.34 * r, 0, 180)
+                self._line([cx - 0.34 * r, cy + 0.22 * r,
+                            cx - 0.34 * r, cy - 0.08 * r])
+                self._line([cx + 0.34 * r, cy + 0.22 * r,
+                            cx + 0.34 * r, cy - 0.08 * r])
+                Line(rounded_rectangle=(cx - 0.58 * r, cy - 0.78 * r,
+                                         1.16 * r, 0.7 * r, 0.12 * r),
+                     width=float(self.line_width))
+            elif self.icon in ('eye', 'eye_off'):
+                Line(ellipse=(cx - 0.85 * r, cy - 0.42 * r,
+                              1.7 * r, 0.84 * r),
+                     width=float(self.line_width))
+                self._circle(cx, cy, 0.28 * r)
+                if self.icon == 'eye_off':
+                    self._line([cx - 0.68 * r, cy + 0.6 * r,
+                                cx + 0.68 * r, cy - 0.6 * r])
+            elif self.icon == 'expand':
+                for sx, sy in ((-1, 1), (1, 1), (-1, -1), (1, -1)):
+                    self._line([cx + sx * 0.82 * r, cy + sy * 0.45 * r,
+                                cx + sx * 0.82 * r, cy + sy * 0.82 * r,
+                                cx + sx * 0.45 * r, cy + sy * 0.82 * r])
+            elif self.icon == 'check':
+                self._line([cx - 0.6 * r, cy + 0.02 * r,
+                            cx - 0.14 * r, cy - 0.44 * r,
+                            cx + 0.62 * r, cy + 0.48 * r])
+            elif self.icon == 'signal':
+                # Barras de señal ascendentes (barra inferior: Señal).
+                for dx, h in ((-0.6, 0.35), (-0.2, 0.6),
+                              (0.2, 0.85), (0.6, 1.1)):
+                    self._line([cx + dx * r, cy - 0.55 * r,
+                                cx + dx * r, cy - 0.55 * r + h * r])
+            elif self.icon == 'network':
+                # Deslizadores verticales (Red / bandas en otras pantallas):
+                # tres rieles con su perilla bien visible. Los
+                # deslizadores horizontales se leían como la hamburguesa
+                # del Menú (las perillas se perdían a 24 dp).
+                for dx, ky in ((-0.55, 0.35), (0, -0.3), (0.55, 0.1)):
+                    self._line([cx + dx * r, cy - 0.7 * r,
+                                cx + dx * r, cy + 0.7 * r])
+                    self._dot(cx + dx * r, cy + ky * r, 0.18 * r)
+            elif self.icon == 'tower':
+                # Torre de antena (barra inferior: Red): mástil con
+                # travesaños y dos ondas de señal arriba.
+                self._line([cx - 0.45 * r, cy - 0.8 * r, cx, cy + 0.35 * r,
+                            cx + 0.45 * r, cy - 0.8 * r])
+                self._line([cx - 0.45 * r, cy - 0.8 * r,
+                            cx + 0.45 * r, cy - 0.8 * r])
+                self._line([cx - 0.28 * r, cy - 0.35 * r,
+                            cx + 0.28 * r, cy - 0.35 * r])
+                self._line([cx - 0.14 * r, cy + 0.05 * r,
+                            cx + 0.14 * r, cy + 0.05 * r])
+                self._circle(cx, cy + 0.35 * r, 0.3 * r, 20, 160)
+                self._circle(cx, cy + 0.35 * r, 0.5 * r, 20, 160)
+            elif self.icon == 'menu':
+                # Hamburguesa (barra inferior: Menú).
+                for dy in (0.5, 0, -0.5):
+                    self._line([cx - 0.75 * r, cy + dy * r,
+                                cx + 0.75 * r, cy + dy * r])
+
+
+class LiveDot(Widget):
+    """Punto verde que late junto a «EN VIVO»: animación de opacidad."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._pulse: Any = None
+
+    def start(self) -> None:
+        if self._pulse is not None:
+            return
+        from kivy.animation import Animation
+        self._pulse = Animation(opacity=0.35, d=0.8) + Animation(opacity=1, d=0.8)
+        self._pulse.repeat = True
+        self._pulse.start(self)
+
+    def stop(self) -> None:
+        if self._pulse is not None:
+            self._pulse.cancel(self)
+            self._pulse = None
+        self.opacity = 1
+
+
+class BandCheckBox(Widget):
+    """Casilla de banda solo visual: el toque lo gestiona su tarjeta.
+
+    Antes era un CheckBox, pero su canvas dibujaba el fondo blanco del
+    atlas de Kivy aunque las imágenes estuvieran vacías (un BorderImage
+    sin textura se pinta blanco), así que en el teléfono la casilla se
+    veía como un cuadrado blanco grande. Como Widget simple dibuja solo
+    su propia caja (borde + relleno + marca, en la regla KV), sin fondo.
+
+    Sin esto, tocar la casilla la cambiaría una vez y la tarjeta otra,
+    y el estado quedaría igual. El estado se lee y se escribe igual
+    que antes (band_vars: .active), así la lógica no cambia.
+    """
+
+    active = BooleanProperty(False)
+
+    def on_touch_down(self, touch: Any) -> bool:
+        return False
+
+    def on_touch_move(self, touch: Any) -> bool:
+        return False
+
+    def on_touch_up(self, touch: Any) -> bool:
+        return False
+
+
+class NavItem(ButtonBehavior, BoxLayout):
+    """Botón de la barra inferior (Etapa 5): icono de líneas + etiqueta.
+
+    ``target`` es la pantalla a la que navega ('monitor', 'info',
+    'tools') o 'menu' para abrir el Menú; ``active`` marca la sección
+    seleccionada. La apariencia vive en la regla KV <NavItem>.
+    """
+
+    icon = StringProperty('')
+    label = StringProperty('')
+    target = StringProperty('')
+    active = BooleanProperty(False)
+
+
+class BottomNavBar(BoxLayout):
+    """Barra de navegación inferior (Etapa 5): los 4 accesos existentes.
+
+    ``section`` es la pantalla que la contiene ('monitor', 'info' o
+    'tools'): cada instancia resalta su propio acceso y el de Menú
+    nunca queda seleccionado (abre la hoja, no es una pantalla). La
+    pantalla de Conexión no lleva barra. La apariencia vive en la
+    regla KV <BottomNavBar>.
+    """
+
+    section = StringProperty('')
+
+
 class SignalGraph(Widget):
     """Линейный график: автомасштаб, линия пика, признак устаревания.
 
@@ -320,6 +810,7 @@ class SignalGraph(Widget):
         self._param = 'sinr'
         self._stale = False
         self._tex: dict[tuple, Any] = {}
+        self._fill_tex: Any = None
         self.bind(pos=lambda *a: self._redraw(), size=lambda *a: self._redraw())
 
     def set_data(self, values: list[float], param: str, peak: float | None,
@@ -358,10 +849,55 @@ class SignalGraph(Widget):
     def _y_range(self) -> tuple[float, float]:
         return self.viewport.y_range()
 
+    def _zones(self, y_min: float, y_max: float) -> list[tuple[float, float, str]]:
+        """Bandas de calidad del parámetro actual, recortadas al rango
+        visible: (valor inferior, valor superior, color del núcleo).
+        Usa los mismos umbrales que la lógica de señal; solo dibuja.
+        """
+        return _threshold_zones(self._param, y_min, y_max)
+
+    def _fill_under_line(self, x0: float, y0: float, plot_w: float, plot_h: float,
+                         segs: list[tuple[float, float, float, float]],
+                         line_col: tuple[float, float, float, float]) -> None:
+        """Relleno degradado bajo la línea principal (piel NetMonster).
+
+        Malla de triángulos entre la línea y la base del gráfico: arriba
+        el color de la línea con alfa 0,28 y abajo transparente. Se dibuja
+        antes que la línea, dentro del mismo canvas.
+
+        El color va en la instrucción Color y el degradado en una textura
+        1×2 (fila de arriba opaca, fila de abajo transparente): el
+        atributo vColor en el formato de vértices no se dibuja bien en
+        Kivy (el relleno salía invisible o como un triángulo gigante fuera
+        del gráfico con mucho historial), así que no se usa.
+        """
+        from kivy.graphics import Color, Mesh
+        from kivy.graphics.texture import Texture
+        if self._fill_tex is None:
+            self._fill_tex = Texture.create(size=(1, 2))
+            self._fill_tex.blit_buffer(b'\xff\xff\xff\x00\xff\xff\xff\xff',
+                                       colorfmt='rgba', bufferfmt='ubyte')
+        pts = [(x0 + plot_w * segs[0][0], y0 + plot_h * segs[0][1])]
+        pts += [(x0 + plot_w * s[2], y0 + plot_h * s[3]) for s in segs]
+        verts: list[float] = []
+        indices: list[int] = []
+        for i, (px, py) in enumerate(pts):
+            verts += [px, py, 0, 1, px, y0, 0, 0]
+            if i:
+                j = 2 * (i - 1)
+                indices += [j, j + 1, j + 2, j + 1, j + 3, j + 2]
+        Color(line_col[0], line_col[1], line_col[2], 0.28)
+        Mesh(texture=self._fill_tex, vertices=verts, indices=indices,
+             mode='triangles',
+             vertex_format=[('vPosition', 2, 'float'),
+                            ('vTexCoords0', 2, 'float')])
+        Color(*line_col)
+
     def _redraw(self) -> None:
         from kivy.graphics import Color, Ellipse, Line, Rectangle
         app = App.get_running_app()
         theme = THEMES[app.theme_name] if app else THEMES['dark']
+        sun = bool(app and app.theme_name == 'sun')
         text_col = tuple(theme['c_sub'])
         self.canvas.clear()
         w, h = self.width, self.height
@@ -376,51 +912,73 @@ class SignalGraph(Widget):
         def y_of(v: float) -> float:
             return y0 + plot_h * (max(y_min, min(y_max, v)) - y_min) / rng
 
+        # Estilo A §3: eje Y en pasos fijos de 10 dB (no autoescalado).
+        step = 10.0
+        grid_vals: list[float] = []
+        v = math.ceil(y_min / step) * step
+        while v <= y_max + 1e-9:
+            grid_vals.append(float(v))
+            v += step
+        if not grid_vals:
+            grid_vals = [y_min, y_max]
+
         with self.canvas:
             Color(*theme['c_graph_bg'])
             Rectangle(pos=self.pos, size=self.size)
-            for i in range(5):
-                gy = y0 + plot_h * i / 4
+            # Zonas de calidad tenues de fondo (escala semántica).
+            for zone_lo, zone_hi, zone_col in self._zones(y_min, y_max):
+                rgba = hex_to_rgba(skin_hex(zone_col), sun)
+                Color(rgba[0], rgba[1], rgba[2], 0.10)
+                Rectangle(pos=(x0, y_of(zone_lo)),
+                          size=(plot_w, y_of(zone_hi) - y_of(zone_lo)))
+            for gv in grid_vals:
+                gy = y_of(gv)
                 Color(*theme['c_grid'])
                 Line(points=[x0, gy, x0 + plot_w, gy], width=1)
-                tex = self._texture(f"{y_min + rng * i / 4:.0f}", sp(11), text_col)
+                tex = self._texture(f"{gv:.0f}", sp(FONT['small']), text_col)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(x0 - tex.width - dp(4), gy - tex.height / 2),
                           size=tex.size)
             title = PARAM_TITLES.get(self._param, self._param.upper())
-            tex = self._texture(f"{title} ({unit_of(self._param)})", sp(13),
+            tex = self._texture(f"{title} ({unit_of(self._param)})", sp(FONT['hint']),
                                 tuple(theme['c_text']), True)
             Color(1, 1, 1, 1)
             Rectangle(texture=tex, pos=(x0, self.y + h - dp(19)), size=tex.size)
+            # Estilo A §3: etiquetas de tiempo en los extremos de la
+            # ventana ("-15 min … ahora"), no una etiqueta centrada.
             start, end = self.viewport.x_range()
-            if self.viewport.times and end < self.viewport.times[-1]:
-                latest = self.viewport.times[-1]
-                time_label = t("От {a:.0f} до {b:.0f} с назад").format(
-                    a=latest - start, b=latest - end)
+            span = max(0.0, end - start)
+            if span >= 60:
+                left_label = t("−{n} мин").format(n=round(span / 60))
             else:
-                time_label = t("Последние {s:.0f} с").format(s=end - start)
-            tex = self._texture(time_label, sp(10), text_col)
-            Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2, self.y + dp(3)),
+                left_label = t("−{n} с").format(n=round(span))
+            tex = self._texture(left_label, sp(FONT['tiny']), text_col)
+            Rectangle(texture=tex, pos=(x0, self.y + dp(3)), size=tex.size)
+            tex = self._texture(t("сейчас"), sp(FONT['tiny']), text_col)
+            Rectangle(texture=tex, pos=(x0 + plot_w - tex.width, self.y + dp(3)),
                       size=tex.size)
 
             if self._peak is not None and y_min <= self._peak <= y_max:
                 py = y_of(self._peak)
-                Color(0.0, 0.72, 0.58, 1)
+                # El pico se marca con una línea punteada ámbar.
+                Color(*theme['c_peak'])
                 Line(points=[x0, py, x0 + plot_w, py], width=1, dash_length=dp(4),
                      dash_offset=dp(3))
             paired = self.viewport.has_comparison
             for comparison in ((False, True) if paired else (False,)):
                 param = comparison_param(self._param) if comparison else self._param
                 is_nr = param.startswith('nr_')
-                sun = app is not None and app.theme_name == 'sun'
                 if self._stale:
-                    line_col = (0.6, 0.6, 0.6, 1)
+                    line_col = _theme_rgba(theme, 'c_nodata')
                 elif is_nr:
-                    line_col = (0.65, 0.30, 0.0, 1) if sun else (1.0, 0.65, 0.2, 1)
+                    line_col = _theme_rgba(theme, 'c_graph_nr')
                 else:
-                    line_col = (0.0, 0.40, 0.65, 1) if sun else (0.0, 0.70, 1.0, 1)
+                    line_col = _theme_rgba(theme, 'c_graph_line')
                 Color(*line_col)
-                for x1, y1, x2, y2 in self.viewport.segments(comparison):
+                segs = list(self.viewport.segments(comparison))
+                if not comparison and not self._stale and segs:
+                    self._fill_under_line(x0, y0, plot_w, plot_h, segs, line_col)
+                for x1, y1, x2, y2 in segs:
                     Line(points=[x0 + plot_w * x1, y0 + plot_h * y1,
                                  x0 + plot_w * x2, y0 + plot_h * y2], width=dp(1.5),
                          dash_length=dp(6) if is_nr else 0,
@@ -430,14 +988,22 @@ class SignalGraph(Widget):
                     lx, ly, r = x0 + plot_w * point[0], y0 + plot_h * point[1], dp(3)
                     Ellipse(pos=(lx - r, ly - r), size=(2 * r, 2 * r))
                 name = radio_label(param) if comparison_param(param) else PARAM_TITLES.get(param, param)
-                label = f"{name}: {fmt_num(self.viewport.latest_value(comparison))} {unit_of(param)}"
-                tex = self._texture(label, sp(11), line_col, True)
+                latest = self.viewport.latest_value(comparison)
+                # Sin valor actual no hay leyenda de comparación: antes
+                # salía «NR: - dB» cuando la serie NR tenía historial
+                # pero ningún dato reciente (su último instante es más
+                # viejo que el de LTE). La serie principal conserva su
+                # leyenda aunque no haya datos (el guion ahí sí informa).
+                if comparison and latest is None:
+                    continue
+                label = f"{name}: {fmt_num(latest)} {unit_of(param)}"
+                tex = self._texture(label, sp(FONT['small']), line_col, True)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex,
                           pos=(x0 + (plot_w / 2 if comparison else 0), self.y + h - dp(38)),
                           size=tex.size)
             if self._stale:
-                tex = self._texture(t("нет свежих данных"), sp(13), text_col, True)
+                tex = self._texture(t("нет свежих данных"), sp(FONT['hint']), text_col, True)
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(x0 + (plot_w - tex.width) / 2,
                                            y0 + plot_h / 2), size=tex.size)
@@ -541,25 +1107,168 @@ class RotatedBox(Widget):
 KV = """
 #:import dp kivy.metrics.dp
 #:import sp kivy.metrics.sp
+#:import FONT android_main.FONT
+#:import RADIUS android_main.RADIUS
+#:import STATUS_HEX android_main.STATUS_HEX
+#:import hex_to_rgba android_main.hex_to_rgba
 
-<ActionButton@Button>:
-    size_hint_x: 0.9
-    pos_hint: {'center_x': 0.5}
+# ¡No renombrar a ActionButton!: ese nombre ya lo registra Kivy
+# (kivy.uix.actionbar.ActionButton) y Kivy ignoraría esta regla,
+# lo que rompía los diálogos (botón de 10128 px, bucle textura↔ancho).
+<PrimaryButton@Button>:
+    size_hint_x: 1
     text_size: self.size
     halign: 'center'
     valign: 'middle'
     background_normal: ''
-    background_color: app.c_accent
-    color: 1, 1, 1, 1
-    font_size: sp(16)
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_on_accent
+    font_size: sp(FONT['value'])
     size_hint_y: None
-    height: dp(52)
+    height: dp(48)
+    canvas.before:
+        Color:
+            # Estilo A §4.8: desactivado (sin cambios que aplicar) se
+            # ve gris; en uso, acento o su tono al pulsar.
+            rgba: app.c_nodata if self.disabled else (app.c_accent if self.state == 'normal' else app.c_accent_down)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
 
 <FlatButton@Button>:
     background_normal: ''
-    background_color: app.c_button2
+    background_down: ''
+    background_color: 0, 0, 0, 0
     color: app.c_text
-    font_size: sp(16)
+    font_size: sp(FONT['value'])
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['button'])
+            width: dp(1)
+
+# Spinner con la piel del tema (antes usaba el gris claro por defecto
+# de Kivy, que rompía con la interfaz oscura): mismo fondo/borde que
+# FlatButton, texto del tema y flecha dibujada (el fondo por defecto
+# de Kivy trae su propia flecha y no se puede teñir).
+<ThemedSpinnerOption@Button>:
+    size_hint_y: None
+    height: dp(48)
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_text
+    font_size: sp(FONT['body'])
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<ThemedSpinner@Spinner>:
+    background_normal: ''
+    background_down: ''
+    background_disabled_normal: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_text
+    option_cls: 'ThemedSpinnerOption'
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['button'])
+            width: dp(1)
+        Color:
+            rgba: app.c_sub
+        Triangle:
+            points: [self.right - dp(24), self.center_y + dp(3), self.right - dp(14), self.center_y + dp(3), self.right - dp(19), self.center_y - dp(4)]
+
+# CheckBox con la piel del tema (el atlas por defecto de Kivy es una
+# caja blanca que rompía con la interfaz oscura): borde redondeado del
+# tema, relleno verde al activar y marca blanca. Las imágenes del atlas
+# se vacían para que el BorderImage por defecto no dibuje nada.
+<ThemedCheckBox@CheckBox>:
+    background_checkbox_normal: ''
+    background_checkbox_down: ''
+    background_checkbox_disabled_normal: ''
+    background_checkbox_disabled_down: ''
+    canvas.after:
+        Color:
+            rgba: app.c_accent if self.active else app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(1.5), self.y + dp(1.5), self.width - dp(3), self.height - dp(3), dp(RADIUS['chip'])
+            width: dp(1.5)
+        Color:
+            rgba: app.c_accent if self.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x + dp(5), self.y + dp(5)
+            size: self.width - dp(10), self.height - dp(10)
+            radius: [dp(4)]
+        Color:
+            rgba: app.c_on_accent if self.active else (0, 0, 0, 0)
+        Line:
+            points: [self.x + dp(11), self.center_y + dp(1), self.center_x - dp(1), self.y + dp(11), self.right - dp(10), self.top - dp(10)]
+            width: dp(2)
+
+# Original mejorado: línea fina verde tenue (separador de sección) y
+# línea verde sólida de 2 dp (bajo el encabezado, como en la vista previa).
+<Hairline@Widget>:
+    size_hint_y: None
+    height: dp(1)
+    canvas:
+        Color:
+            rgba: app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.35
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<GreenRule@Widget>:
+    size_hint_y: None
+    height: dp(2)
+    canvas:
+        Color:
+            rgba: app.c_accent
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+# Original mejorado: título de sección en verde, en mayúsculas, con la
+# línea fina extendiéndose a la derecha (como «INFORMACIÓN LTE» del preview).
+<SectionHead@BoxLayout>:
+    text: ''
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(26)
+    spacing: dp(10)
+    Label:
+        text: root.text
+        font_size: sp(FONT['hint'])
+        bold: True
+        color: app.c_accent
+        size_hint_x: None
+        width: self.texture_size[0]
+        halign: 'left'
+        valign: 'middle'
+    Hairline:
+        pos_hint: {'center_y': 0.5}
 
 <SectionCard@BoxLayout>:
     orientation: 'vertical'
@@ -573,20 +1282,18 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(12)]
-
-<SectionTitle@Label>:
-    font_size: sp(19)
-    bold: True
-    color: app.c_text
-    size_hint_y: None
-    height: dp(34)
-    text_size: self.width, None
-    halign: 'left'
-    valign: 'middle'
+            radius: [dp(RADIUS['card'])]
+    # Borde fino como MetricCard: sin él las tarjetas se fundían con
+    # el fondo y cada pantalla parecía de otra app.
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
+            width: dp(1)
 
 <AutoLabel@Label>:
-    font_size: sp(15)
+    font_size: sp(FONT['body'])
     color: app.c_text
     size_hint_y: None
     height: self.texture_size[1] + dp(6)
@@ -595,22 +1302,29 @@ KV = """
     valign: 'top'
 
 <HintLabel@AutoLabel>:
-    font_size: sp(13)
+    font_size: sp(FONT['hint'])
     color: app.c_sub
 
 <InfoLabel@AutoLabel>:
-    font_size: sp(16)
+    font_size: sp(FONT['value'])
     line_height: 1.3
     markup: True
 
+# m_color por defecto es el gris "sin datos" = c_nodata (#808080).
+# No se puede poner app.c_nodata aquí: al construir el widget el
+# binding aún no se evaluó y m_color llega None al canvas.
+# Estilo A §2: valor grande con la unidad pequeña y en gris, barra
+# con zonas de color y marcador (ZoneBar), estado y "▲ máx X".
 <MetricCard@BoxLayout>:
     orientation: 'vertical'
     m_name: ''
-    m_value: '-'
+    m_num: '-'
+    m_unit: ''
     m_status: ''
     m_peak: ''
     m_color: 0.5, 0.5, 0.5, 1
-    value_size: sp(34)
+    m_pct: 0
+    value_size: sp(FONT['hero'])
     padding: dp(6)
     spacing: dp(1)
     canvas.before:
@@ -619,30 +1333,630 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(10)]
+            radius: [dp(RADIUS['metric'])]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['metric'])
+            width: dp(1)
     CardLabel:
         caption: root.m_name
-        base_size: sp(14)
-        color: app.c_sub
-        size_hint_y: 0.15
-    CardLabel:
-        caption: root.m_value
-        base_size: root.value_size
+        base_size: sp(FONT['label'])
         bold: True
-        color: root.m_color
-        size_hint_y: 0.45
+        color: app.c_sub
+        size_hint_y: 0.17
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: 0.43
+        CardLabel:
+            caption: root.m_num
+            base_size: root.value_size
+            bold: True
+            color: app.c_text
+            halign: 'left'
+            valign: 'bottom'
+        Label:
+            text: root.m_unit
+            font_size: sp(FONT['hint'])
+            color: app.c_sub
+            size_hint: None, None
+            size: self.texture_size
+            pos_hint: {'y': 0}
+            # Sin text_size: atar el tamaño a la propia textura con
+            # text_size creaba el bucle textura↔ancho de D1 y la unidad
+            # salía cortada («B» en vez de «dB»). Sin text_size la
+            # textura se dibuja natural, abajo a la izquierda, alineada
+            # con la base del número.
+            halign: 'left'
+            valign: 'bottom'
+    ZoneBar:
+        param: root.m_name.lower()
+        pct: root.m_pct
+        size_hint_y: None
+        height: dp(5)
+    # Etapa 6: la fila de estado tenía 0,15 (15,4 dp) y su textura
+    # mide 16 px, así que CardLabel la achicaba a 10,9 sp en todos
+    # los tamaños; con 0,19 (19,6 dp) cabe a 13 sp sin encoger.
     CardLabel:
         caption: root.m_status
-        base_size: sp(13)
+        base_size: sp(FONT['hint'])
         color: root.m_color
-        size_hint_y: 0.15
+        size_hint_y: 0.19
     CardLabel:
         id: peak_label
         caption: root.m_peak
-        base_size: sp(14)
+        base_size: sp(FONT['hint'])
         color: app.c_sub
         halign: 'center'
-        size_hint_y: 0.25
+        size_hint_y: 0.21
+
+# Original mejorado: fila etiqueta→valor de INFORMACIÓN LTE
+# (etiqueta pequeña gris a la izquierda, valor blanco a la derecha,
+# unidad pequeña gris; línea fina entre filas).
+<ParamRow@BoxLayout>:
+    key: ''
+    value: '—'
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(34)
+    spacing: dp(8)
+    canvas.after:
+        Color:
+            rgba: app.c_sep
+        Rectangle:
+            pos: self.pos
+            size: self.width, dp(1)
+
+    Label:
+        text: root.key
+        font_size: sp(FONT['small'])
+        bold: True
+        color: app.c_sub
+        size_hint_x: None
+        width: dp(64)
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+    Label:
+        text: root.value
+        font_size: sp(FONT['value'])
+        color: app.c_text
+        markup: True
+        text_size: self.size
+        halign: 'right'
+        valign: 'middle'
+
+# Estilo A §3: celda de Información LTE: etiqueta pequeña arriba y
+# valor abajo, en una cuadrícula de dos columnas. Los ids y la
+# propiedad `value` son los mismos que ParamRow, así que _render no
+# cambia: solo cambia la presentación.
+<ParamCell@BoxLayout>:
+    label: ''
+    value: '—'
+    orientation: 'vertical'
+    size_hint_y: None
+    height: dp(44)
+    spacing: dp(1)
+    CardLabel:
+        caption: root.label
+        base_size: sp(FONT['small'])
+        color: app.c_sub
+        size_hint_y: 0.38
+    CardLabel:
+        caption: root.value
+        base_size: sp(FONT['value'])
+        bold: True
+        color: app.c_text
+        size_hint_y: 0.62
+
+# Original mejorado: un segmento de la barra de salud.
+<Seg@Widget>:
+    lit: False
+    lit_color: 0, 0, 0, 1
+    canvas:
+        Color:
+            rgba: self.lit_color if self.lit else app.c_sep
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(3)]
+
+# Etapa 4: campo de texto con icono y borde que se ilumina al enfocar
+# (como en el preview: fondo del tema, borde verde al escribir).
+<FieldBox@BoxLayout>:
+    focused: False
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(50)
+    spacing: dp(4)
+    padding: dp(12), 0
+    canvas.before:
+        Color:
+            rgba: app.c_bg
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
+    canvas.after:
+        Color:
+            rgba: app.c_accent if self.focused else app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.75), self.y + dp(0.75), self.width - dp(1.5), self.height - dp(1.5), dp(RADIUS['button'])
+            width: dp(1.5) if self.focused else dp(1)
+
+# Etapa 4: botón ojo de la contraseña (icono vectorial, sin texto).
+<EyeToggle@ButtonBehavior+IconWidget>:
+    size_hint: None, None
+    size: dp(40), dp(40)
+    pos_hint: {'center_y': 0.5}
+    line_width: dp(1.8)
+
+# Etapa 4: botón píldora elevada (Picos / Menú): radio grande, mismo
+# alto y misma tipografía que en el preview.
+<PillButton@Button>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_text
+    font_size: sp(FONT['value'])
+    bold: True
+    canvas.before:
+        Color:
+            rgba: app.c_button2 if self.state == 'normal' else app.c_btn_down
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(28)]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(28)
+            width: dp(1)
+
+# Etapa 4: botón de un control segmentado (parámetro del gráfico,
+# modo de antena): verde al estar activo, plano si no.
+<SegButton@ToggleButton>:
+    param: ''
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: app.c_on_accent if self.state == 'down' else app.c_text
+    font_size: sp(FONT['hint'])
+    bold: True
+    canvas.before:
+        Color:
+            rgba: app.c_accent if self.state == 'down' else app.c_button2
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(8)]
+
+# Etapa 5: un acceso de la barra inferior: icono de líneas arriba y
+# etiqueta debajo; activo con pastilla verde al 16 % e icono y texto
+# en verde, inactivo en gris. El toque lo gestiona ButtonBehavior.
+<NavItem>:
+    orientation: 'vertical'
+    spacing: dp(2)
+    # Sin padding horizontal: «Información» en negrita (75 px) no cabía
+    # en la etiqueta (73 px) y salía «Informaci…» en el ítem activo.
+    padding: dp(0), dp(7)
+    canvas.before:
+        Color:
+            rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['button'])]
+    IconWidget:
+        icon: root.icon
+        icon_color: app.c_accent if root.active else app.c_sub
+        size_hint: None, None
+        size: dp(24), dp(24)
+        pos_hint: {'center_x': 0.5}
+        line_width: dp(1.8)
+    Label:
+        text: root.label
+        font_size: sp(FONT['small'])
+        bold: root.active
+        color: app.c_accent if root.active else app.c_sub
+        size_hint_y: None
+        height: dp(16)
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+        shorten: True
+        shorten_from: 'right'
+
+# Etapa 5: barra de navegación inferior: píldora flotante con los 4
+# accesos existentes (Señal, Información, Red, Menú). Cada pantalla
+# lleva su propia instancia con section fijo, así el acceso activo
+# es siempre el de la pantalla que se está viendo; Menú nunca queda
+# seleccionado porque abre la hoja, no es una pantalla. La Conexión
+# no lleva barra. El margen inferior de 8 dp es el área segura.
+<BottomNavBar>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(64)
+    padding: dp(4)
+    spacing: dp(4)
+    canvas.before:
+        Color:
+            rgba: app.c_card
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['pill'])]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['pill'])
+            width: dp(1)
+    NavItem:
+        icon: 'signal'
+        label: app.lbl_nav_signal
+        target: 'monitor'
+        active: root.section == 'monitor'
+        on_release: app.go(self.target)
+    NavItem:
+        icon: 'info'
+        label: app.lbl_nav_info
+        target: 'info'
+        active: root.section == 'info'
+        on_release: app.go(self.target)
+    NavItem:
+        # Estilo A §4.4: Red lleva la torre de antena; los cuatro
+        # accesos tienen iconos distintos (señal, info, torre, menú).
+        icon: 'tower'
+        label: app.lbl_nav_tools
+        target: 'tools'
+        active: root.section == 'tools'
+        on_release: app.go(self.target)
+    NavItem:
+        icon: 'menu'
+        label: app.lbl_nav_menu
+        target: 'menu'
+        active: False
+        on_release: app.open_menu()
+
+# Etapa 4: anillo de salud: arco de fondo gris + arco de color según
+# el porcentaje (0-100 %), con el % en el centro.
+<HealthRing@FloatLayout>:
+    pct: 0
+    pct_text: '0%'
+    ring_color: 0.5, 0.5, 0.5, 1
+    size_hint: None, None
+    size: dp(86), dp(86)
+    canvas:
+        Color:
+            rgba: app.c_sep
+        Line:
+            circle: self.center_x, self.center_y, dp(36), 0, 360
+            width: dp(8)
+            cap: 'round'
+        Color:
+            rgba: root.ring_color
+        Line:
+            circle: self.center_x, self.center_y, dp(36), 90 - root.pct * 3.6, 90
+            width: dp(8)
+            cap: 'round'
+    Label:
+        text: root.pct_text
+        font_size: sp(21)
+        bold: True
+        color: app.c_text
+        size_hint: 1, 1
+        # Sin pos_hint, un hijo de FloatLayout queda en (0, 0) de la
+        # ventana: en Kivy las coordenadas se comparten con el padre.
+        pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+
+# Etapa 4: punto verde que late junto a «EN VIVO».
+<LiveDot>:
+    size_hint: None, None
+    size: dp(12), dp(12)
+    canvas:
+        Color:
+            rgba: app.c_accent
+        Ellipse:
+            pos: self.center_x - dp(4), self.center_y - dp(4)
+            size: dp(8), dp(8)
+
+# Etapa 4: fila etiqueta→valor de Información (etiqueta en negrita,
+# valor normal; «Sin datos» en gris; el valor envuelve si es largo).
+<InfoRow@BoxLayout>:
+    row_key: ''
+    row_value: ''
+    row_nodata: False
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: max(dp(30), value_lbl.texture_size[1] + dp(10))
+    spacing: dp(8)
+    Label:
+        text: root.row_key + ':'
+        font_size: sp(FONT['value'])
+        bold: True
+        color: app.c_text
+        size_hint: None, None
+        size: self.texture_size
+        pos_hint: {'center_y': 0.5}
+    Label:
+        id: value_lbl
+        text: root.row_value
+        font_size: sp(FONT['value'])
+        color: app.c_nodata if root.row_nodata else app.c_text
+        text_size: self.width, None
+        halign: 'left'
+        valign: 'middle'
+
+# Etapa 4: separador fino entre filas de Información.
+<SepLine@Widget>:
+    size_hint_y: None
+    height: dp(1)
+    canvas:
+        Color:
+            rgba: app.c_sep
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+# Rediseño premium: casilla de banda de 24 dp, dibujada a escala y sin
+# fondo blanco: BandCheckBox ya no es un CheckBox (su canvas pintaba el
+# atlas aunque las imágenes estuvieran vacías), así que la regla solo
+# dibuja la caja, el relleno y la marca.
+<BandCheckBox>:
+    canvas.after:
+        Color:
+            rgba: app.c_accent if self.active else app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(1.5), self.y + dp(1.5), self.width - dp(3), self.height - dp(3), dp(6)
+            width: dp(1.5)
+        Color:
+            rgba: app.c_accent if self.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x + self.width * 0.2, self.y + self.height * 0.2
+            size: self.width * 0.6, self.height * 0.6
+            radius: [dp(3)]
+        Color:
+            rgba: app.c_on_accent if self.active else (0, 0, 0, 0)
+        Line:
+            points: [self.x + self.width * 0.24, self.center_y, self.center_x - self.width * 0.06, self.y + self.height * 0.24, self.right - self.width * 0.2, self.top - self.height * 0.2]
+            width: dp(2)
+
+# Etapa 4: banda como tarjeta tocable de 60 dp (casilla integrada):
+# toda la tarjeta cambia la casilla, no solo el cuadradito.
+<BandCard@ButtonBehavior+BoxLayout>:
+    band: 0
+    name: ''
+    sub: ''
+    # Activa o no: la casilla es solo visual; el estado vive aquí y
+    # el canvas lo lee (en canvas no se puede usar ids.cb: al evaluar
+    # las instrucciones la casilla aún no está en ids).
+    active: False
+    # Detectada en el aire: un punto verde a la derecha de la tarjeta
+    # (la leyenda vive bajo la rejilla). El texto «en el aire» no cabe
+    # en una línea junto a la frecuencia y se partía a mitad de frase.
+    observed: False
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(60)
+    spacing: dp(10)
+    padding: dp(10), 0
+    on_press: self.active = not self.active
+    canvas.before:
+        Color:
+            rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.active else app.c_bg
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(RADIUS['card'])]
+    canvas.after:
+        Color:
+            rgba: app.c_accent if root.active else app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.75), self.y + dp(0.75), self.width - dp(1.5), self.height - dp(1.5), dp(RADIUS['card'])
+            width: dp(1.5)
+    BandCheckBox:
+        id: cb
+        active: root.active
+        size_hint: None, None
+        size: dp(24), dp(24)
+        pos_hint: {'center_y': 0.5}
+    BoxLayout:
+        orientation: 'vertical'
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: 0.55
+            Label:
+                text: root.name
+                font_size: sp(FONT['value'])
+                bold: True
+                color: app.c_text
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+            Widget:
+                size_hint: None, None
+                size: dp(10), dp(10)
+                pos_hint: {'center_y': 0.5}
+                canvas:
+                    Color:
+                        rgba: app.c_accent if root.observed else (0, 0, 0, 0)
+                    Ellipse:
+                        pos: self.pos
+                        size: self.size
+        Label:
+            text: root.sub
+            font_size: sp(FONT['small'])
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+            # Por si una frecuencia futura es más larga: se acorta con
+            # puntos, nunca se parte en dos líneas.
+            shorten: True
+            shorten_from: 'right'
+
+# Etapa 4: ítem del Menú como tarjeta (icono en pastilla verde,
+# nombre + descripción, flecha): como la hoja inferior del preview.
+<MenuItem@ButtonBehavior+BoxLayout>:
+    icon: ''
+    name: ''
+    desc: ''
+    danger: False
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(58)
+    spacing: dp(10)
+    padding: dp(10), dp(6)
+    canvas.before:
+        Color:
+            rgba: app.c_card
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+    canvas.after:
+        Color:
+            rgba: app.c_border
+        Line:
+            rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(14)
+            width: dp(1)
+    FloatLayout:
+        size_hint: None, None
+        size: dp(38), dp(38)
+        pos_hint: {'center_y': 0.5}
+        canvas.before:
+            Color:
+                rgba: hex_to_rgba(STATUS_HEX['error'], app.theme_name == 'sun')[:3] + [0.14] if root.danger else (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16)
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(11)]
+        IconWidget:
+            icon: root.icon
+            icon_color: hex_to_rgba(STATUS_HEX['error'], app.theme_name == 'sun') if root.danger else app.c_accent
+            size_hint: None, None
+            size: dp(20), dp(20)
+            pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+            line_width: dp(1.8)
+    BoxLayout:
+        orientation: 'vertical'
+        Label:
+            text: root.name
+            font_size: sp(FONT['body'])
+            bold: True
+            color: hex_to_rgba(STATUS_HEX['error'], app.theme_name == 'sun') if root.danger else app.c_text
+            size_hint_y: 0.55
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+            shorten: True
+            shorten_from: 'right'
+        Label:
+            text: root.desc
+            font_size: sp(FONT['small'])
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+            shorten: True
+            shorten_from: 'right'
+    Label:
+        text: '›'
+        font_size: sp(FONT['big'])
+        color: app.c_sub
+        size_hint_x: None
+        width: dp(16)
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+
+# Etapa 4: asa de la hoja inferior del Menú.
+<SheetGrip@Widget>:
+    size_hint_y: None
+    height: dp(12)
+    canvas:
+        Color:
+            rgba: app.c_border
+        RoundedRectangle:
+            pos: self.center_x - dp(21), self.center_y - dp(2)
+            size: dp(42), dp(4)
+            radius: [dp(2)]
+
+# Original mejorado: una fila de portadora (PCC/SCC) en CARRIER AGGREGATION.
+<CaRow@BoxLayout>:
+    tag: ''
+    band: ''
+    earfcn: ''
+    bw: ''
+    bw_label: ''
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: dp(56)
+    spacing: dp(10)
+    Label:
+        text: root.tag
+        font_size: sp(FONT['small'])
+        bold: True
+        color: app.c_accent if root.tag == 'PCC' else app.c_sub
+        size_hint_x: None
+        width: dp(44)
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+        canvas.before:
+            Color:
+                rgba: (app.c_accent[0], app.c_accent[1], app.c_accent[2], 0.16) if root.tag == 'PCC' else app.c_button2
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(RADIUS['chip'])]
+    BoxLayout:
+        orientation: 'vertical'
+        Label:
+            text: root.band
+            font_size: sp(FONT['body'])
+            bold: True
+            color: app.c_text
+            size_hint_y: 0.55
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        Label:
+            text: root.earfcn
+            font_size: sp(FONT['small'])
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_x: None
+        width: dp(96)
+        Label:
+            text: root.bw
+            font_size: sp(FONT['body'])
+            color: app.c_text
+            size_hint_y: 0.55
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
+        Label:
+            text: root.bw_label
+            font_size: sp(FONT['small'])
+            color: app.c_sub
+            size_hint_y: 0.45
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
 
 <Header@BoxLayout>:
     title: ''
@@ -657,7 +1971,7 @@ KV = """
         on_release: app.go('monitor')
     Label:
         text: root.title
-        font_size: sp(18)
+        font_size: sp(FONT['title'])
         bold: True
         color: app.c_text
 
@@ -676,7 +1990,9 @@ ScreenManager:
             pos: self.pos
             size: self.size
     ScrollView:
-        bar_width: dp(8)
+        bar_width: 0
+        bar_color: app.c_sub
+        bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
         scroll_type: ['bars', 'content']
         BoxLayout:
             orientation: 'vertical'
@@ -684,58 +2000,114 @@ ScreenManager:
             height: self.minimum_height
             padding: dp(24)
             spacing: dp(12)
-            Label:
-                text: 'Hua4GMon'
-                font_size: sp(38)
+            CardLabel:
+                caption: 'Hua4GMon'
+                base_size: sp(FONT['display'])
                 bold: True
                 color: app.c_text
                 size_hint_y: None
                 height: dp(64)
+                # Etapa 6: CardLabel (autoajuste) en vez de Label fijo:
+                # a 216 dp el título no cabía (233 px en 168 dp) y se
+                # cortaba; ahora achica la fuente solo si hace falta.
             Label:
                 text: root.subtitle
-                font_size: sp(15)
+                font_size: sp(FONT['body'])
                 color: app.c_sub
                 size_hint_y: None
-                height: dp(26)
-            AutoLabel:
-                text: root.lbl_ip
-            BoxLayout:
-                size_hint_y: None
-                height: dp(50)
-                spacing: dp(8)
-                TextInput:
-                    id: ip_input
-                    text: '192.168.8.1'
-                    multiline: False
-                    font_size: sp(18)
-                FlatButton:
-                    text: root.lbl_find
-                    size_hint_x: 0.45
-                    font_size: sp(15)
-                    on_release: root.on_find()
-            AutoLabel:
-                text: root.lbl_pw
-            TextInput:
-                id: pw_input
-                password: True
-                multiline: False
-                font_size: sp(18)
-                size_hint_y: None
-                height: dp(50)
-                on_text_validate: root.on_connect()
-            ActionButton:
+                # Etapa 6: con la fuente del sistema grande el subtítulo
+                # no cabe en una línea (347 px en 312 dp) y se cortaba
+                # por los lados: envuelve y la altura sigue a la textura.
+                height: max(dp(26), self.texture_size[1] + dp(4))
+                text_size: self.width, None
+                halign: 'center'
+                valign: 'middle'
+            GreenRule:
+            SectionCard:
+                SectionHead:
+                    text: root.lbl_conn_title
+                AutoLabel:
+                    text: root.lbl_ip
+                    font_size: sp(FONT['label'])
+                    bold: True
+                    color: app.c_sub
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(50)
+                    spacing: dp(8)
+                    FieldBox:
+                        id: ip_field
+                        IconWidget:
+                            icon: 'router'
+                            icon_color: app.c_sub
+                            size_hint: None, None
+                            size: dp(20), dp(20)
+                            pos_hint: {'center_y': 0.5}
+                            line_width: dp(1.8)
+                        TextInput:
+                            id: ip_input
+                            text: '192.168.8.1'
+                            multiline: False
+                            font_size: sp(FONT['big'])
+                            background_color: 0, 0, 0, 0
+                            foreground_color: app.c_text
+                            cursor_color: app.c_accent
+                            padding: dp(2), dp(12)
+                            on_focus: ip_field.focused = args[1]
+                    FlatButton:
+                        text: root.lbl_find
+                        size_hint_x: None
+                        width: dp(88)
+                        font_size: sp(FONT['body'])
+                        on_release: root.on_find()
+                AutoLabel:
+                    text: root.lbl_pw
+                    font_size: sp(FONT['label'])
+                    bold: True
+                    color: app.c_sub
+                FieldBox:
+                    id: pw_field
+                    IconWidget:
+                        icon: 'lock'
+                        icon_color: app.c_sub
+                        size_hint: None, None
+                        size: dp(20), dp(20)
+                        pos_hint: {'center_y': 0.5}
+                        line_width: dp(1.8)
+                    TextInput:
+                        id: pw_input
+                        password: True
+                        multiline: False
+                        font_size: sp(FONT['big'])
+                        background_color: 0, 0, 0, 0
+                        foreground_color: app.c_text
+                        cursor_color: app.c_accent
+                        padding: dp(2), dp(12)
+                        on_focus: pw_field.focused = args[1]
+                        on_text_validate: root.on_connect()
+                    EyeToggle:
+                        id: eye_btn
+                        icon: 'eye'
+                        on_press: root.on_toggle_password()
+            PrimaryButton:
                 text: root.lbl_connect
                 on_release: root.on_connect()
             AutoLabel:
                 id: status_lbl
                 text: ''
-                font_size: sp(15)
+                font_size: sp(FONT['body'])
                 color: root.status_color
                 halign: 'center'
             FlatButton:
                 text: root.lbl_demo
                 size_hint_y: None
                 height: dp(48)
+                # Etapa 6: en ventanas muy estrechas el texto no cabe en
+                # una línea (237 px en 168 dp a 216 dp): envuelve a dos
+                # líneas en vez de cortarse.
+                text_size: self.width, None
+                halign: 'center'
+                valign: 'middle'
                 on_release: app.start_demo()
             FlatButton:
                 text: root.lbl_help
@@ -749,14 +2121,14 @@ ScreenManager:
                 Label:
                     text: root.lbl_lang
                     color: app.c_sub
-                    font_size: sp(14)
+                    font_size: sp(FONT['body'])
                     size_hint_x: None
                     width: dp(80)
-                Spinner:
+                ThemedSpinner:
                     id: lang_spinner
                     text: root.lang_name
                     values: root.lang_values
-                    font_size: sp(14)
+                    font_size: sp(FONT['body'])
                     on_text: root.on_language(self.text)
 
 <MonitorScreen>:
@@ -769,94 +2141,364 @@ ScreenManager:
             size: self.size
     BoxLayout:
         orientation: 'vertical'
-        padding: dp(8)
+        # Estilo A §2: padding lateral mínimo 16 dp; vertical 8 dp
+        # (el margen inferior de la barra es el área segura).
+        padding: dp(16), dp(8)
         spacing: dp(6)
-        Label:
-            id: status_lbl
-            text: ''
-            font_size: sp(15)
-            bold: True
-            color: root.status_color
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-        Label:
-            id: tower_lbl
-            text: '—'
-            font_size: sp(15)
-            bold: True
-            color: app.c_text
-            size_hint_y: None
-            height: self.texture_size[1] + dp(2)
-            text_size: self.width, None
-            halign: 'center'
-        Label:
-            id: event_lbl
-            text: ''
-            font_size: sp(13)
-            color: app.c_sub
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'center'
-        GridLayout:
-            id: metrics_grid
-            cols: 2
-            rows: 2
-            spacing: dp(6)
-            size_hint_y: 0.47
-            MetricCard:
-                id: primary_box
-            MetricCard:
-                id: secondary_box
-            MetricCard:
-                id: small1_box
-            MetricCard:
-                id: small2_box
-        Label:
-            id: advice_lbl
-            text: ''
-            font_size: sp(13)
-            color: root.advice_color
-            size_hint_y: None
-            height: self.texture_size[1] if self.text else 0
-            text_size: self.width, None
-            halign: 'left'
+        # Cabecera del operador (como en la vista previa). Estilo A
+        # §4.2: solo esta barra es fija; el ancla y la fila en vivo
+        # van dentro del scroll, con margen.
         BoxLayout:
             size_hint_y: None
-            height: dp(42)
-            spacing: dp(6)
-            Spinner:
-                id: graph_param
-                text: 'sinr'
-                values: root.graph_values
-                size_hint_x: 0.5
-                font_size: sp(15)
-                on_text: app.set_graph_param(self.text)
-            FlatButton:
-                text: root.lbl_fullscreen
-                size_hint_x: 0.5
-                font_size: sp(14)
-                on_release: app.open_fullscreen_graph()
-        SignalGraph:
-            id: signal_graph
-            size_hint_y: 0.26
-        BoxLayout:
+            height: dp(58)
+            spacing: dp(8)
+            BoxLayout:
+                orientation: 'vertical'
+                Label:
+                    id: op_name_lbl
+                    text: '—'
+                    font_size: sp(FONT['operator'])
+                    bold: True
+                    color: app.c_text
+                    shorten: True
+                    shorten_from: 'right'
+                    size_hint_y: 0.62
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'bottom'
+                Label:
+                    id: op_sub_lbl
+                    text: ''
+                    font_size: sp(FONT['label'])
+                    bold: True
+                    color: app.c_sub
+                    size_hint_y: 0.38
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'top'
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_x: None
+                width: dp(110)
+                Label:
+                    id: plmn_lbl
+                    text: ''
+                    font_size: sp(FONT['big'])
+                    bold: True
+                    color: app.c_text
+                    size_hint_y: 0.55
+                    text_size: self.size
+                    halign: 'right'
+                    valign: 'bottom'
+                BoxLayout:
+                    size_hint_y: 0.45
+                    Widget:
+                    Label:
+                        id: tech_chip_lbl
+                        text: ''
+                        font_size: sp(FONT['label'])
+                        bold: True
+                        color: app.c_on_accent
+                        size_hint: None, None
+                        size: dp(84), dp(24)
+                        pos_hint: {'center_y': 0.5}
+                        text_size: self.size
+                        halign: 'center'
+                        valign: 'middle'
+                        canvas.before:
+                            Color:
+                                rgba: app.c_accent
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(RADIUS['chip'])]
+        GreenRule:
+        ScrollView:
+            bar_width: 0
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
+            scroll_type: ['bars', 'content']
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(10)
+                # Estilo A §3: anillo de salud arriba, con el estado
+                # en texto (health_lbl, en el color semántico del
+                # anillo) y la barra de 20 segmentos.
+                SectionCard:
+                    SectionHead:
+                        text: root.lbl_health
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(86)
+                        spacing: dp(16)
+                        HealthRing:
+                            id: health_ring
+                        BoxLayout:
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: dp(35)
+                            pos_hint: {'center_y': 0.5}
+                            spacing: dp(6)
+                            Label:
+                                id: health_lbl
+                                text: ''
+                                font_size: sp(FONT['hint'])
+                                bold: True
+                                color: app.c_sub
+                                size_hint_y: None
+                                height: dp(20)
+                                text_size: self.size
+                                halign: 'left'
+                                valign: 'middle'
+                            BoxLayout:
+                                id: segbar
+                                size_hint_y: None
+                                height: dp(9)
+                                spacing: dp(3)
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                                Seg:
+                    HintLabel:
+                        text: root.lbl_health_note
+                # Línea de ancla (solo si el router da bandas).
+                BoxLayout:
+                    id: anchor_box
+                    size_hint_y: None
+                    height: dp(30) if root.anchor_visible else 0
+                    opacity: 1 if root.anchor_visible else 0
+                    Label:
+                        id: anchor_lbl
+                        text: ''
+                        font_size: sp(FONT['body'])
+                        bold: True
+                        color: app.c_text
+                        markup: True
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'middle'
+                # Fila en vivo: en real, punto verde + texto «En el
+                # aire»; en demo, pastilla ámbar «DEMO · datos
+                # simulados» a lo ancho de la fila, sin punto verde
+                # (Estilo A §4.6). Son dos filas apiladas con altura
+                # explícita: la oculta mide 0 dp. (Un size_hint 0 no
+                # colapsa al hijo en BoxLayout: la etiqueta quedaba en
+                # 42 dp y la pastilla se salía 10 dp a la derecha.)
+                BoxLayout:
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: dp(22)
+                    BoxLayout:
+                        id: live_row
+                        orientation: 'horizontal'
+                        size_hint_y: None
+                        height: dp(22) if not root.demo_mode else 0
+                        spacing: dp(7)
+                        opacity: 0 if root.demo_mode else 1
+                        LiveDot:
+                            id: live_dot
+                            pos_hint: {'center_y': 0.5}
+                        Label:
+                            id: live_lbl
+                            text: ''
+                            font_size: sp(FONT['label'])
+                            bold: True
+                            color: app.c_sub
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+                    Label:
+                        id: demo_pill
+                        text: root.lbl_demo
+                        font_size: sp(FONT['label'])
+                        bold: True
+                        color: app.c_on_warn
+                        size_hint_y: None
+                        height: dp(22) if root.demo_mode else 0
+                        opacity: 1 if root.demo_mode else 0
+                        text_size: self.size
+                        halign: 'center'
+                        valign: 'middle'
+                        canvas.before:
+                            Color:
+                                rgba: hex_to_rgba(STATUS_HEX['warn'], app.theme_name == 'sun')
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(11)]
+                # Tarjetas de métricas 2x2 (como en el preview): valor
+                # grande, palabra de calidad con su punto, barra fina
+                # y el pico de la sesión en la esquina.
+                GridLayout:
+                    cols: 2
+                    size_hint_y: None
+                    height: dp(258)
+                    spacing: dp(10)
+                    MetricCard:
+                        id: sinr_card
+                        m_name: 'SINR'
+                    MetricCard:
+                        id: rsrp_card
+                        m_name: 'RSRP'
+                    MetricCard:
+                        id: rsrq_card
+                        m_name: 'RSRQ'
+                    MetricCard:
+                        id: rssi_card
+                        m_name: 'RSSI'
+                SectionHead:
+                    text: root.lbl_info_lte
+                # Estilo A §3: Información LTE en dos columnas con la
+                # etiqueta pequeña arriba y el valor abajo (ParamCell).
+                # Los ids son los mismos que antes: _render no cambia.
+                GridLayout:
+                    cols: 2
+                    size_hint_y: None
+                    height: dp(200)
+                    spacing: dp(8)
+                    ParamCell:
+                        id: ci_row
+                        label: 'CI'
+                    ParamCell:
+                        id: earfcn_row
+                        label: 'EARFCN'
+                    ParamCell:
+                        id: enb_row
+                        label: 'ENB:CID'
+                    ParamCell:
+                        id: banda_row
+                        label: 'BANDA'
+                    ParamCell:
+                        id: tac_row
+                        label: 'TAC'
+                    ParamCell:
+                        id: ancho_row
+                        label: 'ANCHO'
+                    ParamCell:
+                        id: pci_row
+                        label: 'PCI'
+                    ParamCell:
+                        id: modo_row
+                        label: 'MODO'
+                BoxLayout:
+                    id: ca_section
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height if root.ca_visible else 0
+                    opacity: 1 if root.ca_visible else 0
+                    spacing: dp(4)
+                    BoxLayout:
+                        id: ca_box
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
+                        padding: dp(6), dp(10)
+                        spacing: dp(4)
+                        canvas.before:
+                            Color:
+                                rgba: app.c_card
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [dp(RADIUS['card'])]
+                        canvas.after:
+                            Color:
+                                rgba: app.c_accent
+                            Line:
+                                rounded_rectangle: self.x + dp(0.5), self.y + dp(0.5), self.width - dp(1), self.height - dp(1), dp(RADIUS['card'])
+                                width: dp(1)
+                        SectionHead:
+                            text: root.lbl_ca
+                        BoxLayout:
+                            id: ca_rows
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: self.minimum_height
+                        Hairline:
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(32)
+                            Label:
+                                id: ca_count_lbl
+                                text: ''
+                                font_size: sp(FONT['hint'])
+                                color: app.c_sub
+                                text_size: self.size
+                                halign: 'left'
+                                valign: 'middle'
+                            Label:
+                                id: ca_total_lbl
+                                text: ''
+                                font_size: sp(FONT['hint'])
+                                color: app.c_sub
+                                markup: True
+                                text_size: self.size
+                                halign: 'right'
+                                valign: 'middle'
+                # Controles del gráfico: se construyen en Python
+                # (_sync_graph_seg): control segmentado + Ampliar.
+                BoxLayout:
+                    id: graph_controls
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(8)
+                SignalGraph:
+                    id: signal_graph
+                    size_hint_y: None
+                    height: dp(210)
+                Label:
+                    id: event_lbl
+                    text: ''
+                    font_size: sp(FONT['hint'])
+                    color: app.c_sub
+                    size_hint_y: None
+                    height: self.texture_size[1] if self.text else 0
+                    text_size: self.width, None
+                    halign: 'left'
+                Label:
+                    id: advice_lbl
+                    text: ''
+                    font_size: sp(FONT['hint'])
+                    color: root.advice_color
+                    size_hint_y: None
+                    height: self.texture_size[1] if self.text else 0
+                    text_size: self.width, None
+                    halign: 'left'
+                # Respiro final: el botón Picos y la barra inferior van
+                # en flujo bajo el scroll (no tapan nada), pero el
+                # contenido no debe terminar pegado a ellos.
+                Widget:
+                    size_hint_y: None
+                    height: dp(8)
+        PillButton:
+            text: root.lbl_peaks
             size_hint_y: None
             height: dp(56)
-            spacing: dp(6)
-            FlatButton:
-                text: root.lbl_sound
-                background_color: app.c_accent if app.sound_on else app.c_button2
-                color: (1, 1, 1, 1) if app.sound_on else app.c_text
-                on_release: app.toggle_sound()
-            FlatButton:
-                text: root.lbl_peaks
-                on_release: app.reset_peaks()
-            FlatButton:
-                text: root.lbl_menu
-                on_release: app.open_menu()
+            on_release: app.reset_peaks()
+        # Etapa 5: barra inferior con los 4 accesos. La píldora Menú
+        # ya no está aquí: su acceso vive en la barra (sin duplicar).
+        BottomNavBar:
+            id: nav_bar
+            section: 'monitor'
 
 <InfoScreen>:
     name: 'info'
@@ -870,40 +2512,59 @@ ScreenManager:
         orientation: 'vertical'
         Header:
             title: root.lbl_title
+        GreenRule:
         ScrollView:
             id: content_scroll
-            bar_width: dp(8)
+            bar_width: 0
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
             BoxLayout:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                padding: dp(10)
+                padding: dp(16)
                 spacing: dp(10)
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_tower_title
-                    InfoLabel:
-                        id: tower_block
-                        text: ''
+                    BoxLayout:
+                        id: tower_rows
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_cells_title
                     InfoLabel:
                         id: cells_block
                         text: ''
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_sim_title
-                    InfoLabel:
-                        id: sim_block
-                        text: ''
+                    BoxLayout:
+                        id: sim_rows
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_status_title
-                    InfoLabel:
-                        id: status_block
-                        text: ''
+                    BoxLayout:
+                        id: status_rows
+                        orientation: 'vertical'
+                        size_hint_y: None
+                        height: self.minimum_height
+        # Etapa 5: barra inferior. El envoltorio deja el mismo margen
+        # de 16 dp que el padding de la raíz de Señal, así la píldora
+        # flota igual en las tres pantallas.
+        BoxLayout:
+            size_hint_y: None
+            height: dp(78)
+            padding: dp(16), dp(6), dp(16), dp(8)
+            BottomNavBar:
+                id: nav_bar
+                section: 'info'
 
 <ToolsScreen>:
     name: 'tools'
@@ -917,15 +2578,18 @@ ScreenManager:
         orientation: 'vertical'
         Header:
             title: root.lbl_title
+        GreenRule:
         ScrollView:
             id: content_scroll
-            bar_width: dp(8)
+            bar_width: 0
+            bar_color: app.c_sub
+            bar_inactive_color: app.c_sep[0], app.c_sep[1], app.c_sep[2], 0.25
             scroll_type: ['bars', 'content']
             BoxLayout:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                padding: dp(10)
+                padding: dp(16)
                 spacing: dp(12)
                 AutoLabel:
                     text: root.net_msg
@@ -933,30 +2597,52 @@ ScreenManager:
                     bold: True
                     height: (self.texture_size[1] + dp(6)) if self.text else 0
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_bandlock
                     HintLabel:
                         text: root.hint_bandlock
                     AutoLabel:
+                        id: lock_state_lbl
                         text: root.lock_state
                         bold: True
+                        markup: True
                     GridLayout:
                         id: bands_grid
                         cols: 2
                         size_hint_y: None
                         height: self.minimum_height
-                        spacing: dp(4)
+                        spacing: dp(8)
+                    # Leyenda del punto verde: el punto se dibuja (el
+                    # carácter ● en el texto saldría en gris, no en verde).
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(24)
+                        spacing: dp(6)
+                        Widget:
+                            size_hint: None, None
+                            size: dp(10), dp(10)
+                            pos_hint: {'center_y': 0.5}
+                            canvas:
+                                Color:
+                                    rgba: app.c_accent
+                                Ellipse:
+                                    pos: self.pos
+                                    size: self.size
+                        HintLabel:
+                            text: root.lbl_observed
+                            pos_hint: {'center_y': 0.5}
                     FlatButton:
                         text: root.lbl_mark_current
                         size_hint_y: None
                         height: dp(48)
                         on_release: app.mark_current_bands()
-                    ActionButton:
+                    PrimaryButton:
+                        id: apply_bands_btn
                         text: root.lbl_apply_bands
                         on_release: app.apply_bands()
                     BoxLayout:
                         size_hint_y: None
-                        height: dp(52)
+                        height: dp(48)
                         spacing: dp(8)
                         FlatButton:
                             text: root.lbl_reset_auto
@@ -965,20 +2651,20 @@ ScreenManager:
                             text: root.lbl_restore
                             on_release: app.restore_bands()
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_antenna
-                    Spinner:
-                        id: antenna_spinner
-                        text: root.antenna_text
-                        values: root.antenna_values
-                        font_size: sp(16)
+                    BoxLayout:
+                        id: antenna_seg
+                        orientation: 'horizontal'
                         size_hint_y: None
-                        height: dp(48)
-                    ActionButton:
+                        height: dp(42)
+                        spacing: dp(3)
+                    PrimaryButton:
+                        id: apply_antenna_btn
                         text: root.lbl_apply_antenna
-                        on_release: app.apply_antenna(antenna_spinner.text)
+                        on_release: app.apply_antenna(root.antenna_selected)
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_router
                     HintLabel:
                         text: root.hint_router
@@ -998,21 +2684,29 @@ ScreenManager:
                         height: dp(52)
                         on_release: app.copy_diagnostics()
                 SectionCard:
-                    SectionTitle:
+                    SectionHead:
                         text: root.lbl_whitelist
                     HintLabel:
                         text: root.hint_whitelist
-                    ActionButton:
+                    PrimaryButton:
                         text: root.lbl_wl_check
                         on_release: app.whitelist_check()
                     AutoLabel:
                         text: root.wl_verdict
-                        font_size: sp(16)
+                        font_size: sp(FONT['value'])
                         bold: True
                         color: root.wl_color
                     AutoLabel:
                         text: root.wl_detail
-                        font_size: sp(13)
+                        font_size: sp(FONT['hint'])
+        # Etapa 5: barra inferior (mismo envoltorio que Información).
+        BoxLayout:
+            size_hint_y: None
+            height: dp(78)
+            padding: dp(16), dp(6), dp(16), dp(8)
+            BottomNavBar:
+                id: nav_bar
+                section: 'tools'
 """
 
 
@@ -1022,6 +2716,7 @@ ScreenManager:
 
 class ConnectionScreen(Screen):
     subtitle = StringProperty("")
+    lbl_conn_title = StringProperty("")
     lbl_ip = StringProperty("")
     lbl_pw = StringProperty("")
     lbl_find = StringProperty("")
@@ -1031,15 +2726,17 @@ class ConnectionScreen(Screen):
     lbl_help = StringProperty("")
     lang_name = StringProperty("")
     lang_values = ListProperty([])
-    status_color = ListProperty([0.9, 0.5, 0.2, 1])
+    status_color = ListProperty(hex_to_rgba(STATUS_HEX['warn']))
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
 
     def refresh_texts(self) -> None:
         self.subtitle = t("Портативный монитор LTE/5G Huawei")
-        self.lbl_ip = t("IP адрес:")
-        self.lbl_pw = t("Пароль:")
+        self.lbl_conn_title = t("Подключение")
+        # Original mejorado: etiquetas de campo en mayúsculas, pequeñas y grises.
+        self.lbl_ip = t("IP адрес:").upper()
+        self.lbl_pw = t("Пароль:").upper()
         self.lbl_find = t("Найти")
         self.lbl_connect = t("Подключиться")
         self.lbl_lang = t("Язык:")
@@ -1091,28 +2788,67 @@ class ConnectionScreen(Screen):
         ip = ip_input.text.strip()
         if not is_valid_ip(ip):
             self.set_status(t("Неверный IP-адрес: {ip}\nПример: 192.168.8.1").format(ip=ip),
-                            [0.9, 0.3, 0.3, 1])
+                            hex_to_rgba(STATUS_HEX['error']))
             return
         App.get_running_app().connect(ip, pw_input.text)
+
+    def on_toggle_password(self) -> None:
+        """Ojo del campo de contraseña: muestra u oculta lo escrito."""
+        pw_input = self.ids.get('pw_input')
+        eye = self.ids.get('eye_btn')
+        if pw_input is None:
+            return
+        pw_input.password = not pw_input.password
+        if eye is not None:
+            eye.icon = 'eye_off' if not pw_input.password else 'eye'
 
 
 class MonitorScreen(Screen):
     lbl_fullscreen = StringProperty("")
-    lbl_sound = StringProperty("")
     lbl_peaks = StringProperty("")
-    lbl_menu = StringProperty("")
+    lbl_info_lte = StringProperty("")
+    lbl_health = StringProperty("")
+    lbl_health_note = StringProperty("")
+    lbl_ca = StringProperty("")
     graph_values = ListProperty(list(LTE_PARAMS))
-    status_color = ListProperty([0.2, 0.8, 0.4, 1])
-    advice_color = ListProperty([0.95, 0.62, 0.25, 1])
+    advice_color = ListProperty(hex_to_rgba(STATUS_HEX['warn']))
+    anchor_visible = BooleanProperty(False)
+    ca_visible = BooleanProperty(False)
+    demo_mode = BooleanProperty(False)
+    lbl_demo = StringProperty("")
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
+        app = App.get_running_app()
+        self.demo_mode = bool(app and app.demo_modem is not None)
+        dot = self.ids.get('live_dot')
+        if dot is not None:
+            if self.demo_mode:
+                # Estilo A §4.6: en demo no hay punto verde; la
+                # animación pisa el binding de opacidad, así que se
+                # apaga aquí (stop deja opacity en 1).
+                dot.stop()
+                dot.opacity = 0
+                dot.width = 0
+            else:
+                dot.width = dp(12)
+                dot.opacity = 1
+                dot.start()
+
+    def on_pre_leave(self, *args: Any) -> None:
+        dot = self.ids.get('live_dot')
+        if dot is not None:
+            dot.stop()
 
     def refresh_texts(self) -> None:
-        self.lbl_fullscreen = t("Во весь экран")
-        self.lbl_sound = t("♪ Звук")
+        self.lbl_fullscreen = t("Развернуть")
         self.lbl_peaks = t("⟲ Пики")
-        self.lbl_menu = t("☰ Меню")
+        self.lbl_info_lte = t("ИНФОРМАЦИЯ LTE")
+        self.lbl_health = t("ЗДОРОВЬЕ СИГНАЛА")
+        self.lbl_health_note = t(
+            "70 % — худший параметр, 30 % — лучший, как считает приложение.")
+        self.lbl_ca = t("АГРЕГАЦИЯ НЕСУЩИХ")
+        self.lbl_demo = t("DEMO · демонстрационные данные")
 
 
 class TopScrollScreen(Screen):
@@ -1149,6 +2885,7 @@ class ToolsScreen(TopScrollScreen):
     lbl_title = StringProperty("")
     lbl_bandlock = StringProperty("")
     hint_bandlock = StringProperty("")
+    lbl_observed = StringProperty("")
     lock_state = StringProperty("")
     lbl_mark_current = StringProperty("")
     lbl_apply_bands = StringProperty("")
@@ -1157,6 +2894,7 @@ class ToolsScreen(TopScrollScreen):
     lbl_antenna = StringProperty("")
     lbl_apply_antenna = StringProperty("")
     antenna_text = StringProperty("")
+    antenna_selected = StringProperty("")
     antenna_values = ListProperty([])
     lbl_router = StringProperty("")
     hint_router = StringProperty("")
@@ -1168,14 +2906,15 @@ class ToolsScreen(TopScrollScreen):
     lbl_wl_check = StringProperty("")
     wl_verdict = StringProperty("")
     wl_detail = StringProperty("")
-    wl_color = ListProperty([0.5, 0.5, 0.5, 1])
+    wl_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
     net_msg = StringProperty("")
-    net_msg_color = ListProperty([0.5, 0.5, 0.5, 1])
+    net_msg_color = ListProperty(hex_to_rgba(STATUS_HEX['nodata']))
 
     def on_pre_enter(self, *args: Any) -> None:
         self.refresh_texts()
         app = App.get_running_app()
         app.build_band_checkboxes()
+        app.build_antenna_seg()
         app.load_router_config()
 
     def refresh_texts(self) -> None:
@@ -1185,6 +2924,8 @@ class ToolsScreen(TopScrollScreen):
             "Список взят из модема; замеченные в эфире бэнды — первыми. "
             "Меняются только LTE-бэнды; «Как было» восстановит настройки, "
             "прочитанные при подключении.")
+        # Leyenda del punto verde de las tarjetas de banda.
+        self.lbl_observed = t("в эфире")
         self.lbl_mark_current = t("Отметить текущие")
         self.lbl_apply_bands = t("Применить Band Lock")
         self.lbl_reset_auto = t("Все (AUTO)")
@@ -1194,6 +2935,7 @@ class ToolsScreen(TopScrollScreen):
         self.antenna_values = [t(k) for k in ANTENNA_MODES]
         if not self.antenna_text:
             self.antenna_text = t("Не прочитано")
+        App.get_running_app().build_antenna_seg()
         self.lbl_router = t("Управление роутером")
         self.hint_router = t(
             "«Переподключить связь» выключает и включает мобильные данные. "
@@ -1220,8 +2962,21 @@ class Hua4GMonApp(App):
     c_sub = ListProperty(THEMES['dark']['c_sub'])
     c_accent = ListProperty(THEMES['dark']['c_accent'])
     c_button2 = ListProperty(THEMES['dark']['c_button2'])
+    c_grid = ListProperty(THEMES['dark']['c_grid'])
+    c_btn_border = ListProperty(THEMES['dark']['c_btn_border'])
+    c_on_accent = ListProperty(THEMES['dark']['c_on_accent'])
+    c_on_warn = ListProperty(THEMES['dark']['c_on_warn'])
+    c_sep = ListProperty(THEMES['dark']['c_sep'])
+    c_border = ListProperty(THEMES['dark']['c_border'])
+    c_nodata = ListProperty(THEMES['dark']['c_nodata'])
+    c_btn_down = ListProperty(THEMES['dark']['c_btn_down'])
+    c_accent_down = ListProperty(THEMES['dark']['c_accent_down'])
     sound_on = BooleanProperty(False)
     lbl_back = StringProperty("")
+    lbl_nav_signal = StringProperty("")
+    lbl_nav_info = StringProperty("")
+    lbl_nav_tools = StringProperty("")
+    lbl_nav_menu = StringProperty("")
 
     # ---------- запуск и жизненный цикл ----------
 
@@ -1244,15 +2999,32 @@ class Hua4GMonApp(App):
         self.interval = 1.0
         self.band_vars: dict[int, Any] = {}
         self._band_list: list[int] = list(REGION_BANDS)
-        self._bands_shown: list[int] = []
+        self._bands_shown: Any = []
+        # Estado aplicado leído del router (Estilo A §4.8): lo que
+        # Aplicar compara para desactivarse sin cambios. None = aún
+        # no leído (entonces Aplicar queda como antes, activo).
+        self._applied_bands: frozenset[int] | None = None
+        self._applied_antenna: str | None = None
         self._busy = False
         self._discovering = False       # идёт автопоиск роутера
         self._wl_running = False        # идёт проверка белых списков
         self._fs_graph: SignalGraph | None = None
         self._last_back = 0.0
+        self._stale_warned = False   # aviso de datos obsoletos en event_lbl
         self._beep_ev: Any = None
         self.beeper = ToneBeeper()
         self.lbl_back = t("← Назад")
+        self._refresh_nav_labels()
+        self._ca_signature: Any = None
+        # На Android точка входа — main.py (Buildozer копирует этот файл
+        # как main.py): модуля android_main в APK нет, а KV делает
+        # #:import android_main.FONT — без алиаса build() падает с
+        # ParserException/ModuleNotFoundError и приложение закрывается
+        # при запуске (регрессия Этапа 3). Алиасуем выполняемый модуль
+        # к его имени файла, чтобы директивы резолвились. В тестах
+        # модуль уже импортирован как android_main и setdefault
+        # ничего не делает.
+        sys.modules.setdefault('android_main', sys.modules[__name__])
         self.sm: ScreenManager = Builder.load_string(KV)
         Clock.schedule_interval(self._tick, 0.5)
         return self.sm
@@ -1294,10 +3066,18 @@ class Hua4GMonApp(App):
         else:
             self.refresh_graph()
 
+    def _refresh_nav_labels(self) -> None:
+        """Etiquetas de la barra inferior (Etapa 5), según el idioma."""
+        self.lbl_nav_signal = t("Сигнал")
+        self.lbl_nav_info = t("Информация")
+        self.lbl_nav_tools = t("Сеть")
+        self.lbl_nav_menu = t("Меню")
+
     def refresh_all_texts(self) -> None:
         self._bands_shown = []
         self.build_band_checkboxes()
         self.lbl_back = t("← Назад")
+        self._refresh_nav_labels()
         for name in ('connection', 'monitor', 'info', 'tools'):
             self.sm.get_screen(name).refresh_texts()
         self._render_link_state()
@@ -1342,20 +3122,20 @@ class Hua4GMonApp(App):
             return
         self._discovering = True
         scr = self._conn_screen()
-        scr.set_status(t("Ищу роутер…"), [0.3, 0.6, 0.95, 1])
+        scr.set_status(t("Ищу роутер…"), hex_to_rgba(STATUS_HEX['info']))
         candidates = ([entered] if is_valid_ip(entered) else []) + list(DISCOVERY_CANDIDATES)
 
         def done(found: Any) -> None:
             self._discovering = False
             if found is None:
                 scr.set_status(t("Роутер не найден. Проверьте подключение к его Wi-Fi/USB."),
-                               [0.9, 0.3, 0.3, 1])
+                               hex_to_rgba(STATUS_HEX['error']))
                 return
             ip_input = scr.ids.get('ip_input')
             if ip_input is not None:
                 ip_input.text = found.ip
             scr.set_status(t("Найден роутер {model} на {ip}").format(
-                model=found.model or "Huawei", ip=found.ip), [0.2, 0.75, 0.45, 1])
+                model=found.model or "Huawei", ip=found.ip), hex_to_rgba(STATUS_HEX['good']))
         binder = None
         if platform == 'android':
             from core.local_transport import bind_android_socket
@@ -1367,7 +3147,7 @@ class Hua4GMonApp(App):
         if self.worker is not None:
             return
         self.demo_modem = None
-        self._conn_screen().set_status(t("Подключение..."), [0.9, 0.6, 0.2, 1])
+        self._conn_screen().set_status(t("Подключение..."), hex_to_rgba(STATUS_HEX['warn']))
         factory = None
         if platform == 'android':
             from functools import partial
@@ -1395,7 +3175,8 @@ class Hua4GMonApp(App):
         self.build_band_checkboxes()
         tools = self._tools()
         tools.antenna_text = t("Не прочитано")
-        tools.lock_state = t("Сейчас на модеме: не прочитано")
+        tools.antenna_selected = ""
+        self._set_lock_state('unread')
         tools.net_msg = tools.wl_verdict = tools.wl_detail = ""
         self._wl_running = False
         monitor = self.sm.get_screen('monitor')
@@ -1442,7 +3223,7 @@ class Hua4GMonApp(App):
         self._busy = False
         self._stop_beeps()
         set_keep_screen_on(False)
-        self._conn_screen().set_status("", [0.5, 0.5, 0.5, 1])
+        self._conn_screen().set_status("", hex_to_rgba(STATUS_HEX['nodata']))
         self.sm.current = 'connection'
 
     def _on_connected(self, info: dict[str, Any]) -> None:
@@ -1450,7 +3231,7 @@ class Hua4GMonApp(App):
         session = self.session
         if session is not None:
             self._band_list = lockable_bands(session.supported_bands, self.state.observed_bands)
-        self._conn_screen().set_status("", [0.5, 0.5, 0.5, 1])
+        self._conn_screen().set_status("", hex_to_rgba(STATUS_HEX['nodata']))
         self.sm.current = 'monitor'
         set_keep_screen_on(True)
         self._render_link_state()
@@ -1479,28 +3260,34 @@ class Hua4GMonApp(App):
 
     def _on_fatal(self, exc: BaseException) -> None:
         self.disconnect()
-        self._conn_screen().set_status(humanize_error(exc), [0.9, 0.3, 0.3, 1])
+        self._conn_screen().set_status(humanize_error(exc), hex_to_rgba(STATUS_HEX['error']))
 
     @staticmethod
     def _event_text(change: Any) -> str:
         return t("{at} смена соты: {old} → {new}").format(
             at=change.at, old=change.old_label, new=change.new_label)
 
+    def _demo_sub(self, sub: str) -> str:
+        """Subtítulo de la cabecera: en modo de prueba indica DEMO (D6)."""
+        return f"{sub} · DEMO" if self.demo_modem is not None else sub
+
     def _render_link_state(self, detail: str = "") -> None:
         scr = self.sm.get_screen('monitor')
-        lbl = scr.ids.get('status_lbl')
-        if lbl is None:
-            return
         sun = self.theme_name == 'sun'
+        live = scr.ids.get('live_lbl')
         if self.link == 'reconnecting':
-            lbl.text = t("Нет связи с роутером — переподключаюсь…")
-            scr.status_color = hex_to_rgba('#e68033', sun)
+            if live is not None:
+                live.text = t("Нет связи с роутером — переподключаюсь…")
+                live.color = hex_to_rgba(STATUS_HEX['warn'], sun)
             ev = scr.ids.get('event_lbl')
             if detail and ev is not None:
                 ev.text = detail
-        elif self.demo_modem is not None:
-            lbl.text = t("Тестовый режим")
-            scr.status_color = hex_to_rgba('#e68033', sun)
+                # Aviso: ámbar, no el gris normal de los eventos (D7).
+                ev.color = hex_to_rgba(STATUS_HEX['warn'], sun)
+        elif self.demo_modem is not None and live is not None:
+            live.text = t(
+                "Тестовый режим · демонстрационные данные").upper()
+            live.color = self.c_sub
 
     # ---------- данные ----------
 
@@ -1529,6 +3316,14 @@ class Hua4GMonApp(App):
             ev = scr.ids.get('event_lbl')
             if ev is not None:
                 ev.text = self._event_text(change)
+                ev.color = self.c_sub
+        elif self._stale_warned:
+            # Llegaron datos frescos: se quita el aviso de obsoletos (D7).
+            ev = scr.ids.get('event_lbl')
+            if ev is not None:
+                ev.text = ""
+                ev.color = self.c_sub
+            self._stale_warned = False
         if snap.has_nr and 'nr_sinr' not in scr.graph_values:
             scr.graph_values = LTE_PARAMS + NR_PARAMS
         if any(b not in self._band_list for b in snap.bands) and self.session is not None:
@@ -1543,52 +3338,167 @@ class Hua4GMonApp(App):
         now = time.monotonic()
         if self.state.is_stale(now, self.interval):
             scr = self.sm.get_screen('monitor')
-            lbl = scr.ids.get('status_lbl')
-            if lbl is not None:
-                lbl.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
+            # La pantalla Señal no tiene línea de estado: el aviso de
+            # datos obsoletos sale en la línea de eventos.
+            ev = scr.ids.get('event_lbl')
+            if ev is not None:
+                ev.text = t("⚠ Данные устарели — нет ответа {s:.0f} с").format(
                     s=self.state.age(now) or 0)
-                scr.status_color = hex_to_rgba('#d63031', self.theme_name == 'sun')
+                # En rojo: que se distinga de un aviso normal (D7).
+                ev.color = hex_to_rgba(STATUS_HEX['error'], self.theme_name == 'sun')
+                self._stale_warned = True
             self.refresh_graph(stale=True)
 
-    def _metric_card(self, card: Any, param: str) -> None:
-        val = self.state.current(param)
-        label, color, _ = evaluate_signal(param.replace('nr_', ''), val)
-        card.m_name = PARAM_TITLES.get(param, param.upper())
-        card.m_value = fmt_num(val)
-        card.m_status = t(label)
-        card.m_color = hex_to_rgba(color, self.theme_name == 'sun')
-        peak, delta = self.state.peaks.get(param), self.state.delta_to_peak(param)
-        card.m_peak = "" if peak is None or delta is None else \
-            t("Пик: {v} (Δ {d})").format(v=fmt_num(peak), d=f"{delta:+g}")
+    def _anchor_text(self, snap: Snapshot) -> str:
+        """'LTE 1800+2100' — frecuencias nominales de los bándos activos.
 
-    def _layout_params(self) -> list[str]:
-        """Крупно — выбранная метрика, рядом RSRP (или SINR), мелко — остальные."""
-        primary = self.state.trend_param
-        secondary = 'rsrp' if primary not in ('rsrp', 'nr_rsrp') else 'sinr'
-        rest = [p for p in LTE_PARAMS if p not in (primary, secondary)][:2]
-        return [primary, secondary, *rest]
+        Vacío si el router no da bándos: la línea de ancla no se muestra.
+        """
+        bands = snap.bands or tuple(c.band for c in snap.lte_carriers)
+        names = [name for name in (_band_freq_name(b) for b in bands) if name]
+        return f"LTE {'+'.join(names)}" if names else ""
+
+    def _render_ca(self, ids: Any, snap: Snapshot) -> None:
+        """Sección CARRIER AGGREGATION: una fila por portadora real.
+
+        Sin portadoras (snap.lte_carriers vacío) la sección no se muestra:
+        no se inventa. Las filas se reconstruyen solo si cambian las
+        portadoras o el idioma.
+        """
+        from kivy.factory import Factory
+        scr = self.sm.get_screen('monitor')
+        carriers = snap.lte_carriers
+        scr.ca_visible = bool(carriers)
+        if not carriers:
+            self._ca_signature = None
+            return
+        sig = (current_language(),
+               tuple((c.band, c.earfcn, c.bandwidth) for c in carriers))
+        if sig == self._ca_signature:
+            return
+        self._ca_signature = sig
+        rows = ids.ca_rows
+        rows.clear_widgets()
+        total = 0.0
+        for i, c in enumerate(carriers):
+            freq = _band_freq_name(c.band)
+            band = f"B{c.band}" + (f" · {freq} {t('МГц')}" if freq else "")
+            # Las propiedades de la regla KV solo existen tras construir
+            # el widget: se asignan después, no como kwargs del constructor.
+            row = Factory.CaRow()
+            row.tag = 'PCC' if i == 0 else 'SCC'
+            row.band = band
+            row.earfcn = f"EARFCN {c.earfcn}"
+            row.bw = f"{c.bandwidth:g} {t('МГц')}"
+            row.bw_label = t("Ширина полосы")
+            rows.add_widget(row)
+            total += c.bandwidth
+        n = len(carriers)
+        ids.ca_count_lbl.text = (t("1 несущая активна") if n == 1
+                                 else t("{n} несущих активны").format(n=n))
+        ids.ca_total_lbl.text = f"{t('Всего')} [b]{total:g} {t('МГц')}[/b]"
 
     def _render(self, snap: Snapshot) -> None:
+        # Pestaña Señal estilo «Original mejorado»: cabecera del operador,
+        # INFORMACIÓN LTE en dos columnas, barras de NIVEL DE SEÑAL,
+        # SALUD DE SEÑAL con segmentos y CARRIER AGGREGATION. Todos los
+        # datos salen del Snapshot; lo que falta se muestra como '—'.
         snap = snap.display()
         scr = self.sm.get_screen('monitor')
         ids = scr.ids
         if not ids:
             return
         sun = self.theme_name == 'sun'
+        # --- Cabecera del operador ---
+        if snap.registered:
+            operator = snap.operator or t("Оператор неизвестен")
+            ids.op_name_lbl.text = operator
+            ids.plmn_lbl.text = _format_plmn(snap.plmn)
+            ids.tech_chip_lbl.text = _tech_chip(snap.rat)
+            ids.tech_chip_lbl.opacity = 1 if snap.rat else 0
+            ids.op_sub_lbl.text = self._demo_sub(_operator_sub(snap.plmn))
+        else:
+            ids.op_name_lbl.text = t(snap.network_message)
+            ids.plmn_lbl.text = "—"
+            ids.tech_chip_lbl.text = ""
+            ids.tech_chip_lbl.opacity = 0
+            ids.op_sub_lbl.text = self._demo_sub(t("Оператор"))
+        # --- Línea de ancla ---
+        anchor = self._anchor_text(snap)
+        scr.anchor_visible = bool(anchor)
+        if anchor:
+            accent = '#{:02x}{:02x}{:02x}'.format(
+                *(int(v * 255) for v in self.c_accent[:3]))
+            ids.anchor_lbl.text = (
+                f"{t('Якорь')} [b][color={accent}]{anchor}[/color][/b]")
+        # --- Fila en vivo (o pastilla DEMO en modo de prueba) ---
+        # Estilo A §4.6: en demo no hay punto verde; la pastilla ámbar
+        # (demo_pill, texto en lbl_demo) sustituye a la fila en vivo.
+        scr.demo_mode = self.demo_modem is not None
+        dot = ids.get('live_dot')
+        if dot is not None:
+            if self.demo_modem is not None:
+                dot.stop()
+                dot.opacity = 0
+                dot.width = 0
+            else:
+                dot.width = dp(12)
+                dot.opacity = 1
+                dot.start()
+        live = ids.get('live_lbl')
+        if live is not None and self.demo_modem is None:
+            live.text = t("В эфире · обновление каждую секунду").upper()
+            live.color = self.c_sub
+        # --- Tarjetas de métricas (SINR/RSRP/RSRQ/RSSI) ---
+        for param in ('sinr', 'rsrp', 'rsrq', 'rssi'):
+            card = ids.get(f'{param}_card')
+            if card is None:
+                continue
+            val = getattr(snap, param)
+            label, color, _pct = evaluate_signal(param, val)
+            lo, hi = _METRIC_RANGES[param]
+            card.m_pct = (0.0 if val is None
+                          else max(0.0, min(100.0, (val - lo) / (hi - lo) * 100)))
+            card.m_num = '—' if val is None else fmt_num(val)
+            card.m_unit = '' if val is None else unit_of(param)
+            card.m_status = f"● {t(label)}"
+            card.m_color = hex_to_rgba(skin_hex(color), sun)
+            peak = self.state.peaks.get(param)
+            card.m_peak = t("▲ макс {v}").format(
+                v='—' if peak is None else fmt_num(peak))
+        # --- INFORMACIÓN LTE ---
+        ids.ci_row.value = _dash_num(snap.cell_id)
+        ids.enb_row.value = ("—" if snap.enodeb is None or snap.sector is None
+                             else f"{fmt_num(snap.enodeb)}:{fmt_num(snap.sector)}")
+        ids.tac_row.value = snap.tac or "—"
+        ids.pci_row.value = _dash_num(snap.pci)
+        ids.earfcn_row.value = _dash_num(snap.earfcn)
+        ids.banda_row.value = _primary_band_label(snap)
+        ids.ancho_row.value = snap.dl_bandwidth or "—"
+        ids.modo_row.value = _primary_band_duplex(snap)
+        # --- SALUD DE SEÑAL ---
         score, summary, color = calculate_overall_health(snap.rsrp, snap.sinr)
         if not snap.registered:
             score, summary, color = 0, snap.network_message, 'gray'
-        health = ('LTE · ' if snap.registered else '') + t(summary).format(pct=score)
-        if self.demo_modem is not None:
-            health = t("ДЕМО · азимут {a}").format(
-                a=demo_angle_hint(self.demo_modem)) + " · " + health
-        ids.status_lbl.text = health
-        scr.status_color = hex_to_rgba(color, sun)
-        ids.tower_lbl.text = self._tower_summary(snap)
-        cards = (ids.primary_box, ids.secondary_box, ids.small1_box, ids.small2_box)
-        for card, param in zip(cards, self._layout_params(), strict=True):
-            self._metric_card(card, param)
-
+        ring = ids.health_ring
+        ring.pct = score
+        ring.pct_text = f"{score}%"
+        ring.ring_color = hex_to_rgba(skin_hex(color), sun)
+        # El resumen trae ' ({pct}%)' al final; el porcentaje ya va en grande.
+        # Estilo A §3: el estado va en el color semántico del anillo.
+        ids.health_lbl.text = (t(summary).split(" ({")[0] if snap.registered
+                               else t(summary))
+        ids.health_lbl.color = hex_to_rgba(skin_hex(color), sun)
+        segs = list(reversed(ids.segbar.children))
+        lit = round(score / 100 * len(segs))
+        seg_color = hex_to_rgba(skin_hex(color), sun)
+        for i, seg in enumerate(segs):
+            seg.lit = i < lit
+            seg.lit_color = seg_color
+        self._sync_graph_seg()
+        # --- CARRIER AGGREGATION ---
+        self._render_ca(ids, snap)
+        # --- Consejos y gráfico ---
         mimo = mimo_status(snap.cqi0, snap.cqi1)
         up = uplink_status(snap.pusch_dbm)
         tips = advice(rsrp=snap.rsrp, sinr=snap.sinr, rsrq=snap.rsrq,
@@ -1598,28 +3508,10 @@ class Hua4GMonApp(App):
         elif snap.connection != 901 or snap.data_enabled is False:
             tips.insert(0, snap.network_message)
         ids.advice_lbl.text = "\n".join("• " + t(tip) for tip in tips[:2])
-        scr.advice_color = hex_to_rgba('#e68033', sun)
+        scr.advice_color = hex_to_rgba(STATUS_HEX['warn'], sun)
         self.refresh_graph()
         if self.sm.current == 'info':
             self.refresh_info_screen()
-
-    def _tower_summary(self, snap: Snapshot) -> str:
-        snap = snap.display()
-        parts = [] if snap.registered and snap.connection == 901 and snap.data_enabled is not False else [t(snap.network_message)]
-        if len(snap.lte_carriers) > 1:
-            parts.append(snap.band_label)
-        elif snap.bands:
-            freq = f" · {snap.freq_mhz:g} {t('МГц')}" if snap.freq_mhz else ""
-            parts.append(f"B{snap.bands[0]}{freq}")
-            if len(snap.bands) > 1:
-                parts.append("CA " + "+".join(f"B{b}" for b in snap.bands[1:]))
-        if snap.cell_id is not None:
-            parts.append(f"Cell ID {snap.cell_id}")
-        if snap.pci is not None:
-            parts.append(f"PCI {snap.pci}")
-        if snap.rat:
-            parts.append(t(RAT_LABELS.get(snap.rat, snap.rat)))
-        return " · ".join(parts) if parts else "—"
 
     def set_graph_param(self, param: str) -> None:
         self.state.set_trend_param(param)
@@ -1627,6 +3519,68 @@ class Hua4GMonApp(App):
             self._render(self.state.last)
         else:
             self.refresh_graph()
+
+    def _sync_graph_seg(self) -> None:
+        """Control segmentado del gráfico: un botón por parámetro.
+
+        Con 4 parámetros (LTE) va en una fila junto a «Ampliar», como
+        en el preview; con NR (7) ocupa dos filas (LTE arriba, NR
+        abajo) y «Ampliar» baja a su propia fila. Se reconstruye solo
+        si cambia la lista, el parámetro activo o el idioma.
+        """
+        from kivy.factory import Factory
+        from kivy.uix.boxlayout import BoxLayout
+        scr = self.sm.get_screen('monitor')
+        box = scr.ids.get('graph_controls')
+        if box is None:
+            return
+        sig = (tuple(scr.graph_values), self.state.trend_param,
+               scr.lbl_fullscreen)
+        if sig == getattr(self, '_graph_seg_sig', None):
+            return
+        self._graph_seg_sig = sig
+        box.clear_widgets()
+        values = list(scr.graph_values)
+        wide = len(values) > 4
+        # Las propiedades de la regla KV solo existen tras construir
+        # el widget: se asignan después, no como kwargs del constructor.
+        def make_seg(param: str, size: float) -> object:
+            btn = Factory.SegButton(
+                text=param.upper(), group='graph_param',
+                font_size=sp(size))
+            btn.param = param
+            btn.bind(on_release=lambda _b, p=param: self.set_graph_param(p))
+            if param == self.state.trend_param:
+                btn.state = 'down'
+            return btn
+        expand = Factory.FlatButton(text=scr.lbl_fullscreen,
+                                    font_size=sp(FONT['body']))
+        expand.bind(on_release=lambda *a: self.open_fullscreen_graph())
+        if wide:
+            # Etapa 6: los 7 botones en una fila cortaban las etiquetas
+            # NR (57-62 px de textura en botones de 46 dp a 360 dp, y
+            # también a 412 dp): filas de 4, que caben hasta en 320 dp.
+            for start in range(0, len(values), 4):
+                seg = BoxLayout(orientation='horizontal', size_hint_y=None,
+                                height=dp(42), spacing=dp(3))
+                for param in values[start:start + 4]:
+                    seg.add_widget(make_seg(param, FONT['label']))
+                box.add_widget(seg)
+            expand.size_hint_y = None
+            expand.height = dp(42)
+            box.add_widget(expand)
+        else:
+            seg = BoxLayout(orientation='horizontal', size_hint_y=None,
+                            height=dp(42), spacing=dp(3))
+            for param in values:
+                seg.add_widget(make_seg(param, FONT['hint']))
+            row = BoxLayout(orientation='horizontal', size_hint_y=None,
+                            height=dp(42), spacing=dp(6))
+            row.add_widget(seg)
+            expand.size_hint_x = None
+            expand.width = dp(110)
+            row.add_widget(expand)
+            box.add_widget(row)
 
     def refresh_graph(self, stale: bool = False) -> None:
         param = self.state.trend_param
@@ -1682,24 +3636,62 @@ class Hua4GMonApp(App):
 
     # ---------- меню и диалоги ----------
 
+    def _style_popup(self, popup: Popup) -> Popup:
+        """Popup con el lenguaje Original mejorado: fondo de tarjeta,
+        título en blanco y separador verde (como la línea del encabezado)."""
+        popup.background_color = self.c_card
+        popup.title_color = self.c_text
+        popup.separator_color = self.c_accent
+        return popup
+
     def open_survey(self) -> None:
+        from kivy.core.text import Label as CoreLabel
+        from kivy.core.window import Window
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         from kivy.uix.textinput import TextInput
         box = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(6))
+        # Etapa 6: en ventanas estrechas o con la fuente grande, los
+        # botones «Buscar operadores» / «Copiar resultado» no caben de
+        # dos en dos (140 px de texto en botones de 134 dp a 320 dp):
+        # esa pareja se apila en vertical. Se mide con la fuente real
+        # del botón (la regla KV fija 16 sp, no los 15 sp del kwarg).
+        content_w = Window.width * 0.97 - dp(24) - dp(12)
+        pair_w = (content_w - dp(6)) / 2
         for items in (((t('Старт'), self._start_survey), (t('Стоп'), self._stop_survey)),
                       ((t('Поиск операторов'), self._search_survey),
                        (t('Копировать результат'), self._copy_survey))):
-            bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+            buttons = []
             for title, action in items:
-                button = Button(text=title, font_size=sp(14))
+                button = Factory.FlatButton(text=title, font_size=sp(FONT['body']))
                 button.bind(on_release=lambda _b, fn=action: fn())
-                bar.add_widget(button)
-            box.add_widget(bar)
-        self._survey_text = TextInput(readonly=True, font_size=sp(14), multiline=True)
+                buttons.append(button)
+            widest = 0.0
+            for button in buttons:
+                probe = CoreLabel(text=button.text, font_size=button.font_size,
+                                  font_name=button.font_name, bold=button.bold)
+                probe.refresh()
+                widest = max(widest, probe.texture.width)
+            if widest > pair_w - dp(4):
+                for button in buttons:
+                    button.size_hint_y = None
+                    button.height = dp(48)
+                    box.add_widget(button)
+            else:
+                bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+                for button in buttons:
+                    bar.add_widget(button)
+                box.add_widget(bar)
+        # Campo de informe con la piel del tema (antes fondo blanco con
+        # texto oscuro, estilo por defecto de Kivy sin tematizar).
+        self._survey_text = TextInput(
+            readonly=True, font_size=sp(FONT['body']), multiline=True,
+            background_color=self.c_card, foreground_color=self.c_text,
+            cursor_color=self.c_accent)
         box.add_widget(self._survey_text)
-        popup = Popup(title=t('Сканер наблюдений · Beta'), content=box, size_hint=(0.97, 0.95))
-        close = Button(text=t('← Назад'), size_hint_y=None, height=dp(46))
+        popup = self._style_popup(Popup(title=t('Сканер наблюдений · Beta'),
+                                        content=box, size_hint=(0.97, 0.95)))
+        close = Factory.FlatButton(text=t('← Назад'), size_hint_y=None, height=dp(46))
         close.bind(on_release=lambda _b: popup.dismiss())
         box.add_widget(close)
         popup.bind(on_dismiss=lambda _p: setattr(self, '_survey_text', None))
@@ -1768,38 +3760,84 @@ class Hua4GMonApp(App):
         self.toast(t('Результат скопирован'))
 
     def open_menu(self) -> None:
+        from kivy.animation import Animation
+        from kivy.core.window import Window
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
-        box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
-        popup = Popup(title=t("Меню"), content=box, size_hint=(0.85, None), height=dp(450))
+        from kivy.uix.label import Label
         sun = self.theme_name == 'sun'
+        box = BoxLayout(orientation='vertical', spacing=dp(2), padding=dp(10))
+        box.add_widget(Factory.SheetGrip())
+        title = Label(text=t("Меню"), font_size=sp(FONT['title']), bold=True,
+                      color=self.c_text, size_hint_y=None, height=dp(36),
+                      halign='left', valign='middle')
+        title.bind(size=lambda i, v: setattr(i, 'text_size', v))
+        box.add_widget(title)
+        box.add_widget(Factory.GreenRule())
+        # Etapa 6: en ventanas bajas (horizontal, 360 dp de alto) la
+        # hoja no cabe y el asa quedaba cortada arriba: la hoja se
+        # acorta y los ítems se compactan para que quepan los 3. En
+        # vertical no cambia nada (262 dp, ítems de 58 dp).
+        sheet_h = min(dp(262), Window.height - dp(16))
+        popup = self._style_popup(Popup(title='', separator_height=0, content=box,
+                                        size_hint=(1, None), height=sheet_h))
+        # (icono, nombre, descripción, acción, peligro): los nombres ya no
+        # llevan glifos de texto (D2/D5); el tema nombra la acción.
+        # Estilo A §4.5: solo Escáner, tema y Desconectar. Información
+        # y Red salen del menú porque ya están en la barra inferior;
+        # sus funciones NO se eliminan, se abren desde la barra.
+        # El tema lleva el icono del tema al que se cambia (sol en
+        # oscuro, luna en sol).
         items = [
-            (t("ℹ Информация"), lambda: self.go('info')),
-            (t('Сканер наблюдений · Beta'), self.open_survey),
-            (t("⚙ Сеть"), lambda: self.go('tools')),
-            (t("☀ Солнце: выкл") if sun else t("☀ Солнце: вкл"),
-             lambda: self.apply_theme('dark' if sun else 'sun')),
-            (t("⏏ Отключиться"), self.confirm_disconnect),
+            ('radar', t("Сканер наблюдений"),
+             t("Beta · наблюдайте соты, поворачивая антенну"),
+             self.open_survey, False),
+            ('moon' if sun else 'sun',
+             t("Вернуться к тёмной теме") if sun else t("Включить солнце"),
+             t("Тёмная тема: тёмно-синий фон и бирюзовый акцент") if sun
+             else t("Светлая тема для чтения под прямым солнцем"),
+             lambda: self.apply_theme('dark' if sun else 'sun'), False),
+            ('power', t("Отключиться"), t("Закрыть сессию с роутером"),
+             self.confirm_disconnect, True),
         ]
-        for text, action in items:
-            btn = Button(text=text, font_size=sp(17), size_hint_y=None, height=dp(56))
-            btn.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
-            box.add_widget(btn)
+        item_h = dp(58)
+        if sheet_h < dp(262):
+            # Fijos de la hoja: padding 20 + asa 12 + título 36 +
+            # regla 2 + separaciones 14 = 84 dp, más 2 huecos de 2 dp
+            # entre los 3 ítems: el resto se reparte entre los ítems.
+            item_h = max(dp(40), (sheet_h - dp(88)) / 3)
+        for icon, name, desc, action, danger in items:
+            item = Factory.MenuItem()
+            item.height = item_h
+            item.icon = icon
+            item.name = name
+            item.desc = desc
+            item.danger = danger
+            item.bind(on_release=lambda _b, a=action: (popup.dismiss(), a()))
+            box.add_widget(item)
         popup.open()
+        # ModalView centra el popup al abrirlo y lo recentra al cambiar
+        # tamaño/centro: se desvincula y se deja abajo como hoja inferior.
+        Window.unbind(on_resize=popup._align_center)
+        popup.funbind('center', popup._align_center)
+        popup.funbind('size', popup._align_center)
+        popup.y = -popup.height
+        Animation(y=0, d=0.25, t='out_quad').start(popup)
 
     def confirm(self, title: str, message: str, yes_text: str,
                 on_yes: Callable[[], None]) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         from kivy.uix.label import Label
         content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
-        msg = Label(text=message, halign='center', valign='middle', font_size=sp(15))
+        msg = Label(text=message, halign='center', valign='middle', font_size=sp(FONT['body']))
         msg.bind(size=lambda i, v: setattr(i, 'text_size', v))
         content.add_widget(msg)
-        btns = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(10))
-        popup = Popup(title=title, content=content, size_hint=(0.92, 0.55))
-        no = Button(text=t("← Назад"), font_size=sp(16))
-        yes = Button(text=yes_text, font_size=sp(16), background_color=(0.8, 0.4, 0.15, 1))
+        btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
+        popup = self._style_popup(Popup(title=title, content=content,
+                                        size_hint=(0.92, 0.55)))
+        no = Factory.FlatButton(text=t("← Назад"), font_size=sp(FONT['value']), size_hint_x=1)
+        yes = Factory.PrimaryButton(text=yes_text, font_size=sp(FONT['value']), size_hint_x=1)
         no.bind(on_release=lambda *a: popup.dismiss())
         yes.bind(on_release=lambda *a: (popup.dismiss(), on_yes()))
         btns.add_widget(no)
@@ -1812,46 +3850,63 @@ class Hua4GMonApp(App):
                      t("Отключиться"), self.disconnect)
 
     def show_popup(self, title: str, message: str) -> None:
+        from kivy.factory import Factory
+        from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.label import Label
         from kivy.uix.scrollview import ScrollView
+        box = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(6))
         lbl = Label(text=message, halign='left', valign='top', size_hint_y=None,
-                    font_size=sp(14))
+                    font_size=sp(FONT['body']))
         lbl.bind(width=lambda i, w: setattr(i, 'text_size', (w, None)),
                  texture_size=lambda i, ts: setattr(i, 'height', ts[1]))
-        sv = ScrollView()
+        sv = ScrollView(bar_width=0, bar_color=self.c_sub,
+                        bar_inactive_color=[*self.c_sep[:3], 0.25])
         sv.add_widget(lbl)
-        Popup(title=title, content=sv, size_hint=(0.92, 0.8)).open()
+        box.add_widget(sv)
+        back = Factory.FlatButton(text=t("← Назад"), size_hint_y=None, height=dp(48))
+        box.add_widget(back)
+        # 0,85 de alto: el texto de Ayuda mide ~459 px y con 0,8 el viewport
+        # quedaba en 451 px, así que la última línea se cortaba 8 px.
+        popup = self._style_popup(Popup(title=title, content=box,
+                                        size_hint=(0.92, 0.85)))
+        back.bind(on_release=lambda *a: popup.dismiss())
+        popup.open()
 
     def toast(self, text: str, seconds: float = 2.0) -> None:
+        # Aviso flotante: texto blanco sobre velo negro, igual en los dos
+        # temas a propósito (en sol, el texto del tema sería negro sobre
+        # negro y no se leería). No es un color suelto: es el toast.
         from kivy.core.window import Window
         from kivy.graphics import Color, RoundedRectangle
         from kivy.uix.label import Label
-        lbl = Label(text=text, font_size=sp(15), size_hint=(None, None), color=(1, 1, 1, 1))
+        lbl = Label(text=text, font_size=sp(FONT['body']), size_hint=(None, None), color=(1, 1, 1, 1))
         lbl.texture_update()
         lbl.size = (lbl.texture_size[0] + dp(24), lbl.texture_size[1] + dp(16))
         lbl.pos = ((Window.width - lbl.width) / 2, dp(80))
         with lbl.canvas.before:
             Color(0, 0, 0, 0.8)
-            RoundedRectangle(pos=lbl.pos, size=lbl.size, radius=[dp(8)])
+            RoundedRectangle(pos=lbl.pos, size=lbl.size, radius=[dp(RADIUS['button'])])
         Window.add_widget(lbl)
         Clock.schedule_once(lambda dt: Window.remove_widget(lbl), seconds)
 
     def open_fullscreen_graph(self) -> None:
+        from kivy.factory import Factory
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
         inner = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
         graph = PinchGraph()
-        close = Button(text=t("← Назад"), size_hint_y=None, height=dp(48))
+        close = Factory.FlatButton(text=t("← Назад"), size_hint_y=None, height=dp(48))
         inner.add_widget(graph)
         controls = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(4))
-        auto = Button(text=t("Авто"), font_size=sp(14))
+        auto = Factory.FlatButton(text=t("Авто"), font_size=sp(FONT['body']))
         auto.bind(on_release=lambda *a: graph.auto())
         controls.add_widget(auto)
         controls.add_widget(close)
         inner.add_widget(controls)
         self._fs_graph = graph
-        popup = Popup(title='', separator_height=0, content=RotatedBox(inner),
-                      size_hint=(0.98, 0.96))
+        param = self.state.trend_param
+        popup = self._style_popup(Popup(
+            title=f"{PARAM_TITLES[param]} ({unit_of(param)})",
+            content=RotatedBox(inner), size_hint=(0.98, 0.96)))
         def dismissed(*_args: Any) -> None:
             graph.release_touches()
             self._fs_graph = None
@@ -1870,10 +3925,12 @@ class Hua4GMonApp(App):
         nd = t("Нет данных")
         mhz = t('МГц')
 
-        def row(name: str, value: Any) -> str:
-            # Строки от роутера — без разметки Kivy: «[» и «]» в них не теги.
-            text = escape_markup(str(value)) if value not in (None, '', '-') else nd
-            return f"[b]{t(name)}:[/b] {text}"
+        def row(name: str, value: Any) -> tuple[str, str, bool]:
+            # (etiqueta, valor, es_sin_datos): el valor va sin markup
+            # (InfoRow no usa markup) y en gris cuando no hay datos.
+            if value in (None, '', '-'):
+                return t(name), nd, True
+            return t(name), str(value), False
 
         ca = {True: t("Активна"), False: t("Нет"), None: None}[snap.ca]
         nr = snap.nr_summary() if snap.has_nr else None
@@ -1888,12 +3945,12 @@ class Hua4GMonApp(App):
             row('Агрегация (CA)', ca),
             row('Ширина канала', f"DL {dl} / UL {ul}" if ul else dl),
             row('Сектор антенны (PCI)', fmt_num(snap.pci)),
-            row('Cell ID (ECI)', snap.cell_id),
+            row('ID соты (ECI)', snap.cell_id),
             row('eNodeB (Вышка)', fmt_num(snap.enodeb) if snap.enodeb is not None else
                 (f"NCI {snap.nci}" if snap.nci else None)),
             row('Cell (Локальный сектор)', fmt_num(snap.sector)),
             row('TAC (зона)', snap.tac),
-            row('5G NR', nr),
+            row('Сеть 5G NR', nr),
         ]
         cells = [
             escape_markup(f"{'▶ ' if self.state.is_current_cell(c) else ''}{c.operator_label}"
@@ -1904,7 +3961,7 @@ class Hua4GMonApp(App):
             for c in self.state.top_cells()]
         info = self.session.device_info if self.session is not None else {}
         sim = [row(name, info.get(key)) for key, name in (
-            ('Imei', 'IMEI (роутер)'), ('Imsi', 'IMSI (SIM)'), ('Iccid', 'ICCID (SIM-карта)'),
+            ('Imei', 'IMEI (роутер)'), ('Imsi', 'IMSI (SIM-карта)'), ('Iccid', 'ICCID (SIM-карта)'),
             ('Msisdn', 'Номер телефона'), ('SerialNumber', 'Серийный номер'),
             ('DeviceName', 'Модель'), ('SoftwareVersion', 'Прошивка'))]
         mimo = mimo_status(snap.cqi0, snap.cqi1)
@@ -1938,18 +3995,37 @@ class Hua4GMonApp(App):
             row('Трафик за месяц (↓/↑)', month),
             row('Модуляция DL / UL', " / ".join(mods) if mods else None),
             row('Режим передачи (TM)' , format_mimo(snap.transmode) if snap.transmode else None),
-            row('MIMO', snap.mimo_matrix or None),
+            row('Схема MIMO', snap.mimo_matrix or None),
             row('Ранг MIMO LTE', t('Нет подтверждённых данных')),
             row('Ранг MIMO NR', format_rank(snap.nr_rank)),
             row('CQI кодовых слов', cqi),
             row('Мощность передатчика', tx),
-            row('RRC', snap.rrc),
+            row('Состояние RRC', snap.rrc),
             row('RSRP мин / макс', minmax('rsrp')),
             row('SINR мин / макс', minmax('sinr')),
         ]
-        for key, lines in (('tower_block', tower), ('cells_block', cells or [nd]),
-                           ('sim_block', sim), ('status_block', status)):
-            ids[key].text = "\n".join(lines)
+        self._fill_info_rows(ids['tower_rows'], tower)
+        ids['cells_block'].text = "\n".join(cells or [nd])
+        self._fill_info_rows(ids['sim_rows'], sim)
+        self._fill_info_rows(ids['status_rows'], status)
+
+    def _fill_info_rows(self, box: Any,
+                        rows: list[tuple[str, str, bool]]) -> None:
+        """Rellena una tarjeta de Información con filas InfoRow.
+
+        Cada fila es (etiqueta, valor, es_sin_datos), separadas por
+        SepLine; el valor sin datos va en gris (c_nodata).
+        """
+        from kivy.factory import Factory
+        box.clear_widgets()
+        for i, (label, value, nodata) in enumerate(rows):
+            if i:
+                box.add_widget(Factory.SepLine())
+            item = Factory.InfoRow()
+            item.row_key = label
+            item.row_value = value
+            item.row_nodata = nodata
+            box.add_widget(item)
 
     # ---------- экран «Сеть» ----------
 
@@ -1959,28 +4035,119 @@ class Hua4GMonApp(App):
     def _net_msg(self, text: str, color: str) -> None:
         tools = self._tools()
         tools.net_msg = text
-        tools.net_msg_color = hex_to_rgba(color, self.theme_name == 'sun')
+        tools.net_msg_color = hex_to_rgba(skin_hex(color), self.theme_name == 'sun')
 
     def build_band_checkboxes(self) -> None:
         grid = self._tools().ids.get('bands_grid')
-        if grid is None or self._bands_shown == self._band_list:
+        shown = (list(self._band_list), frozenset(self.state.observed_bands))
+        if grid is None or self._bands_shown == shown:
             return
-        from kivy.uix.checkbox import CheckBox
-        from kivy.uix.label import Label
+        from kivy.factory import Factory
         checked = {b for b, cb in self.band_vars.items() if cb.active}
         grid.clear_widgets()
         self.band_vars = {}
-        row_h = dp(44)
         for band in self._band_list:
-            cb = CheckBox(size_hint=(None, None), width=dp(40), height=row_h,
-                          active=band in checked)
-            lbl = Label(text=lte_band_label(band, t("МГц")), color=self.c_text,
-                        halign='left', valign='middle', size_hint_y=None, height=row_h)
-            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-            grid.add_widget(cb)
-            grid.add_widget(lbl)
+            card = Factory.BandCard()
+            card.band = band
+            card.name = f"B{band}"
+            card.sub = self._band_card_sub(band)
+            card.observed = band in self.state.observed_bands
+            cb = card.ids.cb
+            # El estado visual de la tarjeta espeja la casilla.
+            cb.bind(active=lambda _i, v, c=card: setattr(c, 'active', v))
+            # Estilo A §4.8: al cambiar una banda se revalúa Aplicar.
+            cb.bind(active=lambda *_a: self._sync_apply_buttons())
+            cb.active = band in checked
+            grid.add_widget(card)
             self.band_vars[band] = cb
-        self._bands_shown = list(self._band_list)
+        self._bands_shown = shown
+        self._sync_apply_buttons()
+
+    def _band_card_sub(self, band: int) -> str:
+        """Subtítulo de la tarjeta de banda: frecuencia y TDD, en una
+        línea. Si está en el aire se marca con el punto verde de la
+        tarjeta (el texto «en el aire» no cabía y se partía)."""
+        freq = _band_freq_name(band)
+        parts = []
+        if freq:
+            parts.append(f"{freq} {t('МГц')}")
+        info = LTE_BAND_TABLE.get(band)
+        if info and info[1] == 'TDD':
+            parts.append('TDD')
+        return " · ".join(parts)
+
+    def _sync_apply_buttons(self) -> None:
+        """«Aplicar» desactivado hasta que haya cambios (Estilo A §4.8).
+
+        Se compara la selección actual con lo leído del router
+        (_applied_bands/_applied_antenna). Si el estado aplicado aún
+        no se leyó, los botones quedan como antes (activos): sin
+        lectura no se sabe qué cambió.
+        """
+        tools = self._tools()
+        ids = tools.ids
+        current_bands = frozenset(
+            b for b, cb in self.band_vars.items() if cb.active)
+        btn = ids.get('apply_bands_btn')
+        if btn is not None:
+            btn.disabled = (self._applied_bands is not None
+                            and current_bands == self._applied_bands)
+        btn = ids.get('apply_antenna_btn')
+        if btn is not None:
+            btn.disabled = (self._applied_antenna is not None
+                            and tools.antenna_selected == self._applied_antenna)
+
+    def _set_lock_state(self, kind: str, bands: str = "") -> None:
+        """Línea «Ahora en el módem:» con el valor en negrita y acento.
+
+        kind: 'unread' (valor en gris), 'auto' o 'locked' (en verde).
+        """
+        tools = self._tools()
+        prefix = escape_markup(t("Сейчас на модеме:"))
+        accent = '#{:02x}{:02x}{:02x}'.format(
+            *(int(v * 255) for v in self.c_accent[:3]))
+        if kind == 'unread':
+            gray = '#{:02x}{:02x}{:02x}'.format(
+                *(int(v * 255) for v in self.c_sub[:3]))
+            value = f"[color={gray}]{escape_markup(t('не прочитано'))}[/color]"
+        elif kind == 'auto':
+            # Estilo A §4.7: el estado es «AUTO», sin aclaración.
+            value = (f"[b][color={accent}]"
+                     f"{escape_markup(t('AUTO'))}[/color][/b]")
+        else:
+            value = f"[b][color={accent}]{escape_markup(bands)}[/color][/b]"
+        tools.lock_state = f"{prefix}\n{value}"
+
+    def build_antenna_seg(self) -> None:
+        """Control segmentado de antena: un botón por modo.
+
+        Se reconstruye al cambiar el idioma o el modo leído; sin modo
+        leído no hay botón activo (Aplicar avisa, como antes).
+        """
+        from kivy.factory import Factory
+        tools = self._tools()
+        box = tools.ids.get('antenna_seg')
+        if box is None:
+            return
+        labels = [t(k) for k in ANTENNA_MODES]
+        sig = (tuple(labels), tools.antenna_selected)
+        if sig == getattr(self, '_antenna_seg_sig', None):
+            return
+        self._antenna_seg_sig = sig
+        box.clear_widgets()
+        for label in labels:
+            btn = Factory.SegButton(text=label, group='antenna',
+                                    font_size=sp(FONT['hint']))
+            btn.param = label
+            btn.bind(on_release=lambda _b, lab=label: self._select_antenna(lab))
+            if label == tools.antenna_selected:
+                btn.state = 'down'
+            box.add_widget(btn)
+
+    def _select_antenna(self, label: str) -> None:
+        self._tools().antenna_selected = label
+        self.build_antenna_seg()
+        self._sync_apply_buttons()
 
     def _run_bg(self, work: Callable[[], Any], done: Callable[[Any], None],
                 fail: Callable[[BaseException], None]) -> None:
@@ -1999,12 +4166,12 @@ class Hua4GMonApp(App):
                     busy_text: str) -> None:
         """Команда роутеру: повторное нажатие до ответа игнорируется."""
         if self.session is None or self.link != 'online':
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if self._busy:
             return
         self._busy = True
-        self._net_msg(busy_text, '#3399ff')
+        self._net_msg(busy_text, STATUS_HEX['info'])
         session = self.session
 
         def finish(result: Any) -> None:
@@ -2019,7 +4186,7 @@ class Hua4GMonApp(App):
             self._survey_searching = False
             self._busy = False
             self._net_msg(t("Команда не выполнена: {err}").format(
-                err=humanize_error(exc)), '#d63031')
+                err=humanize_error(exc)), STATUS_HEX['error'])
         self._run_bg(work, finish, failed)
 
     def load_router_config(self) -> None:
@@ -2030,23 +4197,25 @@ class Hua4GMonApp(App):
         self._tools().antenna_text = t("Не прочитано")
         for cb in self.band_vars.values():
             cb.active = False
-        unread = t("Сейчас на модеме: не прочитано")
         # Пока не прочитано — не показываем состояние прошлой сессии.
-        self._tools().lock_state = unread
+        self._set_lock_state('unread')
 
         def done(cfg: Any) -> None:
             if session is not self.session:
                 return
             tools = self._tools()
             if cfg.locked is None:
-                tools.lock_state = t("Сейчас на модеме: не прочитано")
+                self._set_lock_state('unread')
+                self._applied_bands = None
             elif not cfg.locked:
-                tools.lock_state = t("Сейчас на модеме: AUTO (все бэнды)")
+                self._set_lock_state('auto')
+                self._applied_bands = frozenset()
                 for cb in self.band_vars.values():
                     cb.active = False
             else:
-                tools.lock_state = t("Сейчас на модеме: {bands}").format(
-                    bands=", ".join(f"B{b}" for b in cfg.locked))
+                self._set_lock_state(
+                    'locked', ", ".join(f"B{b}" for b in cfg.locked))
+                self._applied_bands = frozenset(cfg.locked)
                 extra = [b for b in cfg.locked if b not in self._band_list]
                 if extra:
                     self._band_list += extra
@@ -2057,38 +4226,47 @@ class Hua4GMonApp(App):
                 for label, code in ANTENNA_MODES.items():
                     if code == cfg.antenna:
                         tools.antenna_text = t(label)
+                        tools.antenna_selected = t(label)
+                        self._applied_antenna = t(label)
+                        self.build_antenna_seg()
+            else:
+                self._applied_antenna = None
+            self._sync_apply_buttons()
 
         def failed(_exc: BaseException) -> None:
             if session is self.session:
-                self._tools().lock_state = unread
+                self._set_lock_state('unread')
         self._run_bg(session.read_config, done, failed)
 
     def mark_current_bands(self) -> None:
         snap = self.state.last
         if (self.link != 'online' or snap is None or not snap.registered
                 or self.state.is_stale(time.monotonic(), self.interval)):
-            self._net_msg(t("Текущий бэнд ещё не определён."), '#d63031')
+            self._net_msg(t("Текущий бэнд ещё не определён."), STATUS_HEX['error'])
             return
         bands = [b for b in snap.bands if 1 <= b <= 63 and b in self.band_vars]
         if not bands:
-            self._net_msg(t("Текущий бэнд ещё не определён."), '#d63031')
+            self._net_msg(t("Текущий бэнд ещё не определён."), STATUS_HEX['error'])
             return
         for b, cb in self.band_vars.items():
             cb.active = b in bands
         self._net_msg(t("Отмечены текущие бэнды: {bands}").format(
-            bands=", ".join(f"B{b}" for b in bands)), '#3399ff')
+            bands=", ".join(f"B{b}" for b in bands)), STATUS_HEX['info'])
 
     def apply_bands(self) -> None:
         session = self.session
         selected = [b for b, cb in self.band_vars.items() if cb.active]
         if session is None or self.link != 'online':
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if not selected:
-            self._net_msg(t("Выберите хотя бы один диапазон!"), '#d63031')
+            self._net_msg(t("Выберите хотя бы один диапазон!"), STATUS_HEX['error'])
             return
         names = ", ".join(f"B{b}" for b in selected)
         lines = [t("Зафиксировать бэнды: {bands}?").format(bands=names)]
+        # Estilo A §4.8: avisar en el diálogo de que sin señal en esa
+        # banda se pierde la conexión.
+        lines.append(t("Если в этом бэнде нет сигнала, связь пропадёт."))
         lines += lock_warnings(selected, self.state.last)
         def confirm_plan(plan):
             lines.append(t("Режим сети после записи: {mode}").format(mode=plan.networkmode))
@@ -2106,7 +4284,7 @@ class Hua4GMonApp(App):
     def reset_bands(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         self._net_action(lambda: session.apply_plan(session.plan_all_bands()),
                          lambda ok: self._after_write(ok, t("Включены все бэнды (AUTO).")),
@@ -2115,12 +4293,12 @@ class Hua4GMonApp(App):
     def restore_bands(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         plan = session.plan_restore_original()
         if plan is None:
             self._net_msg(t("Исходные настройки не прочитаны — роутер не отдал net-mode."),
-                          '#d63031')
+                          STATUS_HEX['error'])
             return
         self._net_action(lambda: session.apply_plan(plan),
                          lambda ok: self._after_write(ok, t(
@@ -2130,10 +4308,10 @@ class Hua4GMonApp(App):
     def _after_write(self, verified: bool, success_text: str) -> None:
         if verified:
             self._net_msg(success_text + " " + t(
-                "Модем перерегистрируется в сети (до ~30 с)."), '#00b894')
+                "Модем перерегистрируется в сети (до ~30 с)."), STATUS_HEX['good'])
         else:
             self._net_msg(t("Команда отправлена, но роутер не подтвердил запись — "
-                            "проверьте строку «Сейчас на модеме»."), '#e68033')
+                            "проверьте строку «Сейчас на модеме»."), STATUS_HEX['warn'])
         self.load_router_config()
 
     def apply_antenna(self, label: str) -> None:
@@ -2141,10 +4319,10 @@ class Hua4GMonApp(App):
         rev = {t(k): k for k in ANTENNA_MODES}
         code = parse_antenna_value(rev.get(label, label))
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
         if code is None:
-            self._net_msg(t("Неизвестный режим антенны."), '#d63031')
+            self._net_msg(t("Неизвестный режим антенны."), STATUS_HEX['error'])
             return
 
         def work() -> int | None:
@@ -2152,26 +4330,26 @@ class Hua4GMonApp(App):
 
         def done(read_back: int | None) -> None:
             if read_back == code:
-                self._net_msg(t("Тип антенны изменён: {mode}").format(mode=label), '#00b894')
+                self._net_msg(t("Тип антенны изменён: {mode}").format(mode=label), STATUS_HEX['good'])
             elif read_back is None:
-                self._net_msg(t("Команда отправлена, но режим антенны не подтверждён."), '#e68033')
+                self._net_msg(t("Команда отправлена, но режим антенны не подтверждён."), STATUS_HEX['warn'])
             else:
                 self._net_msg(t("Роутер принял команду, но сообщает другой режим антенны."),
-                              '#e68033')
+                              STATUS_HEX['warn'])
         self._net_action(work, done, t("Переключаю антенну…"))
 
     def confirm_reattach(self) -> None:
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def done(ok: bool) -> None:
             if ok:
-                self._net_msg(t("Связь переподключена."), '#00b894')
+                self._net_msg(t("Связь переподключена."), STATUS_HEX['good'])
             else:
                 self._net_msg(t("Не удалось включить мобильные данные — включите их в "
-                                "веб-интерфейсе роутера."), '#d63031')
+                                "веб-интерфейсе роутера."), STATUS_HEX['error'])
         self.confirm(t("Подтверждение"), t(
             "Переподключить мобильную связь?\n\nМобильные данные будут выключены и включены. Интернет временно пропадёт (обычно на 5–10 секунд). Смена соты и улучшение сигнала не гарантируются."), t("Переподключить"),
             lambda: self._net_action(session.reattach, done, t("Переподключаю связь…")))
@@ -2179,12 +4357,12 @@ class Hua4GMonApp(App):
     def confirm_reboot(self) -> None:
         session, worker = self.session, self.worker
         if session is None or worker is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def done(_: Any) -> None:
             self._net_msg(t("Роутер перезагружается — переподключусь автоматически."),
-                          '#3399ff')
+                          STATUS_HEX['info'])
         self.confirm(t("Подтверждение"), t(
             "Перезагрузить роутер?\n\nСоединение с интернетом прервётся "
             "на 1–2 минуты. Программа переподключится автоматически."),
@@ -2198,7 +4376,7 @@ class Hua4GMonApp(App):
         """
         session = self.session
         if session is None:
-            self._net_msg(t("Сначала подключитесь к роутеру."), '#d63031')
+            self._net_msg(t("Сначала подключитесь к роутеру."), STATUS_HEX['error'])
             return
 
         def work() -> str:
@@ -2213,7 +4391,7 @@ class Hua4GMonApp(App):
             from kivy.core.clipboard import Clipboard
             Clipboard.copy(text)
             self._net_msg(t("Диагностика скопирована в буфер обмена. Личные номера "
-                            "замаскированы."), '#00b894')
+                            "замаскированы."), STATUS_HEX['good'])
         self._net_action(work, done, t("Собираю диагностику…"))
 
     def whitelist_check(self) -> None:
@@ -2224,7 +4402,7 @@ class Hua4GMonApp(App):
         session = self.session
         tools = self._tools()
         tools.wl_verdict = t("Проверка…")
-        tools.wl_color = hex_to_rgba('#e68033', self.theme_name == 'sun')
+        tools.wl_color = hex_to_rgba(STATUS_HEX['warn'], self.theme_name == 'sun')
         tools.wl_detail = t("Проверка занимает несколько секунд.")
 
         def done(report: Any) -> None:
@@ -2232,7 +4410,7 @@ class Hua4GMonApp(App):
                 return
             self._wl_running = False
             tools.wl_verdict = report.title
-            tools.wl_color = hex_to_rgba(report.color, self.theme_name == 'sun')
+            tools.wl_color = hex_to_rgba(skin_hex(report.color), self.theme_name == 'sun')
             lines = [report.detail, ""]
             for title, results in ((t("В белых списках:"), report.white),
                                    (t("Нейтральные:"), report.neutral)):
