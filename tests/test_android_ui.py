@@ -818,6 +818,30 @@ def test_foreign_network_hidden_and_survey_copy(app, monkeypatch):
     app.worker.resume()
 
 
+def test_survey_search_in_demo(app):
+    """Etapa 7 (§9.9): «Поиск операторов» в демо завершается без ошибок.
+
+    Демо не отдаёт plmn_list/cell_info, но discover_networks собирает
+    ошибки по точкам, поиск заканчивается, а сбор продолжается."""
+    from kivy.core.window import Window
+    from kivy.uix.popup import Popup
+    ensure_online(app)
+    app.open_survey()
+    try:
+        app._start_survey()
+        assert pump(lambda: app.survey.running)
+        app._search_survey()
+        assert pump(lambda: not getattr(app, '_survey_searching', False), 20)
+        assert app.survey.running
+        assert app._survey_text is not None
+    finally:
+        app._stop_survey()
+        for widget in list(Window.children):
+            if isinstance(widget, Popup):
+                widget.dismiss()
+        pump(lambda: False, 0.1)
+
+
 @pytest.mark.parametrize('size', [(140, 100), (165, 140), (280, 120)])
 @pytest.mark.parametrize('language', ['ru', 'en', 'es'])
 def test_metric_captions_fit_small_cards(app, size, language):
