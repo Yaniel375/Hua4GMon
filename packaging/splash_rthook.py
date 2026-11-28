@@ -15,4 +15,4 @@ import contextlib
 with contextlib.suppress(ImportError, RuntimeError, OSError):
     import pyi_splash
 
-    pyi_splash.update_text("Загрузка программы…")
+    pyi_splash.update_text("Cargando la aplicación…")

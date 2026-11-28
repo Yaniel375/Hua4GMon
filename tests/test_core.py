@@ -458,8 +458,8 @@ def test_android_on_pre_enter_does_not_touch_kv_ids_directly():
     src = _read_android_main()
 
     import re
-    kv_ids = ('status_lbl', 'antenna_spinner', 'bands_grid', 'tower_block',
-              'sim_block', 'status_block', 'signal_graph', 'graph_param',
+    kv_ids = ('status_lbl', 'antenna_seg', 'bands_grid', 'tower_rows',
+              'sim_rows', 'status_rows', 'signal_graph', 'graph_controls',
               'ip_input', 'pw_input')
     for m in re.finditer(r'def on_pre_enter\(self.*?(?=\n    def |\nclass |\Z)',
                          src, re.DOTALL):
